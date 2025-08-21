@@ -3,7 +3,7 @@
 import logging
 import wx
 import threading
-from typing import Optional, Callable
+from typing import Optional
 
 from ..engine.stockfish_manager import StockfishManager
 
@@ -130,7 +130,7 @@ class EngineStatusDialog(wx.Dialog):
         
         # System installation
         if status["system_installed"]:
-            lines.append(f"✓ System Installation: Found")
+            lines.append("✓ System Installation: Found")
             lines.append(f"  Path: {status['system_path']}")
         else:
             lines.append("✗ System Installation: Not found")
@@ -252,11 +252,12 @@ class EngineInstallationRunner:
             self.manager.install_stockfish()
         except Exception as e:
             # Ensure completion signal is sent even on exception
+            error_msg = f"Installation failed: {str(e)}"
             wx.CallAfter(
                 lambda: self.manager.installation_completed.send(
                     self.manager,
                     success=False,
-                    message=f"Installation failed: {str(e)}"
+                    message=error_msg
                 )
             )
 
@@ -302,7 +303,7 @@ class EngineInstallationRunner:
                         # Force close if needed
                         try:
                             self.progress_dialog.Destroy()
-                        except:
+                        except Exception:
                             pass
                     
                     # Clear the dialog reference

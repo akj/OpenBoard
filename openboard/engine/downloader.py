@@ -1,6 +1,5 @@
 """Stockfish downloader utilities for managing engine installations."""
 
-import hashlib
 import json
 import logging
 import platform

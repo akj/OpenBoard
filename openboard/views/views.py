@@ -46,7 +46,12 @@ class BoardPanel(wx.Panel):
         # subscribe to controller signals
         controller.board_updated.connect(self.on_board_updated)
         controller.square_focused.connect(self.on_square_focused)
-        self.controller = controller
+        controller.selection_changed.connect(self.on_selection_changed)
+        controller.hint_ready.connect(self.on_hint_ready)
+
+        # enable keyboard focus
+        self.SetFocus()
+        self.Bind(wx.EVT_PAINT, self.on_paint)
 
     def _get_piece(self, square):
         """Safely get the piece at a given square, or None if out of bounds or empty."""
@@ -61,12 +66,6 @@ class BoardPanel(wx.Panel):
         """Return the color of the piece at the given square, or None if no piece."""
         piece = self._get_piece(square)
         return getattr(piece, "color", None)
-        self.controller.selection_changed.connect(self.on_selection_changed)
-        self.controller.hint_ready.connect(self.on_hint_ready)
-
-        # enable keyboard focus
-        self.SetFocus()
-        self.Bind(wx.EVT_PAINT, self.on_paint)
 
     def on_board_updated(self, sender, board):
         """Model pushed a new board position."""
