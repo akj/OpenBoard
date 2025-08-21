@@ -1,12 +1,15 @@
 import json
 import wx
+import chess
 
 import accessible_output3.outputs.auto as ao2
 
 from ..engine.engine_adapter import EngineAdapter
 from ..models.game import Game
+from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
+from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog
 
 logger = get_logger(__name__)
 
@@ -156,6 +159,14 @@ class ChessFrame(wx.Frame):
         file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl-Q")
         menu_bar.Append(file_menu, "&File")
 
+        # Game menu
+        game_menu = wx.Menu()
+        game_menu.Append(wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N")
+        game_menu.Append(wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M")
+        game_menu.AppendSeparator()
+        game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
+        menu_bar.Append(game_menu, "&Game")
+
         options_menu = wx.Menu()
         options_menu.Append(wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T")
         menu_bar.Append(options_menu, "&Options")
@@ -178,6 +189,12 @@ class ChessFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_load_fen, id=wx.ID_OPEN)
         self.Bind(wx.EVT_MENU, self.on_load_pgn, id=wx.ID_ANY)
         self.Bind(wx.EVT_MENU, lambda e: self.Close(), id=wx.ID_EXIT)
+        
+        # Bind game menu events
+        self.Bind(wx.EVT_MENU, self.on_new_human_vs_human, id=game_menu.GetMenuItems()[0].GetId())
+        self.Bind(wx.EVT_MENU, self.on_new_human_vs_computer, id=game_menu.GetMenuItems()[1].GetId())
+        self.Bind(wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[3].GetId())
+        
         self.Bind(
             wx.EVT_MENU,
             lambda e: controller.toggle_announce_mode(),
@@ -196,6 +213,7 @@ class ChessFrame(wx.Frame):
         controller.announce.connect(self.on_announce)
         controller.status_changed.connect(self.on_status_changed)
         controller.hint_ready.connect(self.on_hint_ready)
+        controller.computer_thinking.connect(self.on_computer_thinking)
 
         self.Show()
 
@@ -391,6 +409,54 @@ class ChessFrame(wx.Frame):
                     self.on_update_stockfish(event)
                 else:
                     self.on_install_stockfish(event)
+
+    def on_new_human_vs_human(self, event):
+        """Handle Game > New Game: Human vs Human menu selection."""
+        config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN, human_color=chess.WHITE)
+        self.controller.game.new_game(config)
+        self.speech.speak("New human vs human game started")
+
+    def on_new_human_vs_computer(self, event):
+        """Handle Game > New Game: Human vs Computer menu selection."""
+        if not self.controller.game.engine_adapter:
+            wx.MessageBox(
+                "No chess engine available. Please install Stockfish to play against the computer.",
+                "Engine Required",
+                wx.OK | wx.ICON_WARNING
+            )
+            return
+            
+        # Show game setup dialog
+        result = show_game_setup_dialog(self)
+        if result:
+            human_color, difficulty = result
+            config = GameConfig(
+                mode=GameMode.HUMAN_VS_COMPUTER,
+                human_color=human_color,
+                difficulty=difficulty
+            )
+            self.controller.game.new_game(config)
+            
+            color_name = "White" if human_color == chess.WHITE else "Black"
+            difficulty_name = difficulty.value.title()
+            message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
+            self.speech.speak(message)
+            
+            # If computer plays white, start its move
+            if self.controller.game.is_computer_turn():
+                self.controller._request_computer_move_async()
+
+    def on_difficulty_info(self, event):
+        """Handle Game > Difficulty Info menu selection."""
+        show_difficulty_info_dialog(self)
+
+    def on_computer_thinking(self, sender, thinking: bool):
+        """Handle computer thinking status changes."""
+        if thinking:
+            self.status.SetStatusText("Computer is thinking...")
+        else:
+            # Status will be updated by other signals (move_made, status_changed)
+            pass
 
 
 def main():

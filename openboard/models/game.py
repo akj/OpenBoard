@@ -3,7 +3,7 @@ import chess
 from blinker import Signal
 
 from .board_state import BoardState
-from .game_mode import GameMode, GameConfig, DifficultyLevel, get_difficulty_config, get_computer_color
+from .game_mode import GameMode, GameConfig, get_difficulty_config, get_computer_color
 from ..engine.engine_adapter import EngineAdapter
 from ..logging_config import get_logger
 

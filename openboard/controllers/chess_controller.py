@@ -3,6 +3,7 @@ import chess.pgn
 from io import StringIO
 from blinker import Signal
 from typing import Optional, List
+import threading
 
 from ..models.game import Game
 from ..logging_config import get_logger
@@ -34,6 +35,7 @@ class ChessController:
     announce = Signal()  # args: text (str)
     status_changed = Signal()  # args: status (str)
     hint_ready = Signal()  # args: move (chess.Move)
+    computer_thinking = Signal()  # args: thinking (bool)
 
     def __init__(self, game: Game, config: Optional[dict] = None):
         """
@@ -59,11 +61,19 @@ class ChessController:
         # apply_move is called by the controller:
         self._pending_old_board: Optional[chess.Board] = None
 
+        # computer move handling
+        self._computer_thinking: bool = False
+        self._computer_move_thread: Optional[threading.Thread] = None
+
         # hook model signals
         game.move_made.connect(self._on_model_move)
         game.board_state.move_undone.connect(self._on_model_undo)
         game.status_changed.connect(self._on_status_changed)
         game.hint_ready.connect(self._on_hint_ready)
+        
+        # Hook computer move signal if it exists
+        if hasattr(game, 'computer_move_ready'):
+            game.computer_move_ready.connect(self._on_computer_move_ready)
 
         # announce initial board
         self._emit_board_update()
@@ -79,6 +89,10 @@ class ChessController:
         # announce the move
         ann = self._format_move_announcement(move)
         self.announce.send(self, text=ann)
+        
+        # Check if computer should move next (but not during replay)
+        if not self._in_replay and self.game.is_computer_turn() and not self.game.board_state.board.is_game_over():
+            self._request_computer_move_async()
 
     def _on_model_undo(self, sender, move: chess.Move):
         """Fired whenever a move is undone in model."""
@@ -95,6 +109,12 @@ class ChessController:
     def _on_hint_ready(self, sender, move: chess.Move):
         """Forward engine hints to the view."""
         self.hint_ready.send(self, move=move)
+
+    def _on_computer_move_ready(self, sender, move: chess.Move):
+        """Handle computer move completion."""
+        self._computer_thinking = False
+        self.computer_thinking.send(self, thinking=False)
+        # Move announcement is handled by _on_model_move
 
     # —— Public methods for view events —— #
 
@@ -125,6 +145,16 @@ class ChessController:
         Select or, if already selected on a different square, confirm move.
         Bound to SPACE.
         """
+        # Prevent moves during computer thinking
+        if self._computer_thinking:
+            self.announce.send(self, text="Computer is thinking, please wait")
+            return
+            
+        # Prevent human moves when it's computer's turn
+        if self.game.is_computer_turn():
+            self.announce.send(self, text="It's the computer's turn")
+            return
+            
         if self.selected_square is None:
             # pick up a piece
             self.selected_square = self.current_square
@@ -297,3 +327,37 @@ class ChessController:
             return f"{fname_src} {fname_dst}"
         else:
             return f"{color} {name} from {fname_src} to {fname_dst}{took}"
+
+    # —— Computer move handling —— #
+
+    def _request_computer_move_async(self):
+        """Request a computer move in a background thread."""
+        if self._computer_thinking:
+            return  # Already thinking
+            
+        if self._computer_move_thread and self._computer_move_thread.is_alive():
+            return  # Thread still running
+            
+        self._computer_thinking = True
+        self.computer_thinking.send(self, thinking=True)
+        self.announce.send(self, text="Computer is thinking...")
+        
+        # Start computer move in background thread
+        self._computer_move_thread = threading.Thread(target=self._compute_computer_move)
+        self._computer_move_thread.daemon = True
+        self._computer_move_thread.start()
+
+    def _compute_computer_move(self):
+        """Compute computer move in background thread."""
+        try:
+            self.game.request_computer_move()
+        except Exception as e:
+            logger.error(f"Computer move computation failed: {e}")
+            # Signal thinking stopped even on error
+            self._computer_thinking = False
+            self.computer_thinking.send(self, thinking=False)
+            self.announce.send(self, text=f"Computer move failed: {e}")
+
+    def is_computer_thinking(self) -> bool:
+        """Check if computer is currently thinking."""
+        return self._computer_thinking
