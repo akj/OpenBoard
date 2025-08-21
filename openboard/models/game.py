@@ -97,7 +97,7 @@ class Game:
         :raises RuntimeError if no engine_adapter is set.
         """
         if not self.engine_adapter:
-            raise RuntimeError("No engine adapter configured")
+            raise RuntimeError("No chess engine available. Please install Stockfish to get hints.")
         fen = self.board_state._board.fen()
         best_move = self.engine_adapter.get_best_move(fen, time_ms)
         self.hint_ready.send(self, move=best_move)

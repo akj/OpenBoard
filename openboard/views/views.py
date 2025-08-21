@@ -196,6 +196,7 @@ class ChessFrame(wx.Frame):
         # Subscribe to controller signals
         controller.announce.connect(self.on_announce)
         controller.status_changed.connect(self.on_status_changed)
+        controller.hint_ready.connect(self.on_hint_ready)
 
         self.Show()
 
@@ -266,6 +267,52 @@ class ChessFrame(wx.Frame):
     def on_status_changed(self, sender, status: str):
         """Update the status bar on game-status changes."""
         self.status.SetStatusText(status)
+
+    def on_hint_ready(self, sender, move):
+        """Handle hint ready signal and announce the suggested move."""
+        if move:
+            # Convert the move to a human-readable format
+            move_text = self._format_move_for_speech(move)
+            hint_message = f"Hint: {move_text}"
+            
+            # Announce the hint
+            self.speech.speak(hint_message)
+            self.status.SetStatusText(hint_message)
+        else:
+            # No move available (shouldn't happen, but handle gracefully)
+            no_hint_message = "No hint available"
+            self.speech.speak(no_hint_message)
+            self.status.SetStatusText(no_hint_message)
+
+    def _format_move_for_speech(self, move):
+        """Format a chess move for speech output."""
+        import chess
+        
+        # Get basic move notation
+        if move is None:
+            return "no move"
+            
+        # Use algebraic notation for the move
+        board = self.controller.game.board_state.board
+        
+        try:
+            # Get standard algebraic notation (SAN) - e.g. "Nf3", "e4", "O-O"
+            san = board.san(move)
+            
+            # Make it more speech-friendly
+            san_speech = san.replace("+", " check").replace("#", " checkmate")
+            san_speech = san_speech.replace("O-O-O", "castle queenside").replace("O-O", "castle kingside")
+            
+            # Add "from" and "to" squares for clarity
+            from_square = chess.square_name(move.from_square)
+            to_square = chess.square_name(move.to_square)
+            
+            # Format: "Knight f3 (from g1 to f3)" or "e4 (from e2 to e4)"
+            return f"{san_speech}, from {from_square} to {to_square}"
+            
+        except Exception:
+            # Fallback to basic UCI notation if SAN fails
+            return f"from {chess.square_name(move.from_square)} to {chess.square_name(move.to_square)}"
 
     def on_install_stockfish(self, event):
         """Handle Engine > Install Stockfish menu selection."""
