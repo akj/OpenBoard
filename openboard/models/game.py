@@ -60,12 +60,28 @@ class Game:
         # announce new status
         self.status_changed.send(self, status=self.board_state.game_status())
 
-    def apply_move(self, src_square: chess.Square, dst_square: chess.Square):
+    def apply_move(self, src_square: chess.Square, dst_square: chess.Square, promotion: Optional[chess.PieceType] = None):
         """
         Create a Move from two square indexes and push it.
+        For pawn promotions, defaults to queen if no promotion piece specified.
+        :param promotion: piece type to promote to (defaults to queen for pawn promotions)
         :raises ValueError if the move is illegal.
         """
-        mv = chess.Move(src_square, dst_square)
+        # Check if this is a pawn promotion move
+        board = self.board_state.board
+        piece = board.piece_at(src_square)
+        
+        # Detect pawn promotion: pawn moving to back rank
+        if (piece and piece.piece_type == chess.PAWN and 
+            ((piece.color == chess.WHITE and chess.square_rank(dst_square) == 7) or
+             (piece.color == chess.BLACK and chess.square_rank(dst_square) == 0))):
+            # Default to queen promotion if not specified
+            if promotion is None:
+                promotion = chess.QUEEN
+            mv = chess.Move(src_square, dst_square, promotion=promotion)
+        else:
+            mv = chess.Move(src_square, dst_square)
+            
         self.board_state.make_move(mv)
 
     def request_hint(self, time_ms: int = 1000) -> chess.Move | None:
