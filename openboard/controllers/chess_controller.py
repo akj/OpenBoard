@@ -340,7 +340,6 @@ class ChessController:
             
         self._computer_thinking = True
         self.computer_thinking.send(self, thinking=True)
-        self.announce.send(self, text="Computer is thinking...")
         
         # Start computer move in background thread
         self._computer_move_thread = threading.Thread(target=self._compute_computer_move)

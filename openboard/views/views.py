@@ -452,11 +452,8 @@ class ChessFrame(wx.Frame):
 
     def on_computer_thinking(self, sender, thinking: bool):
         """Handle computer thinking status changes."""
-        if thinking:
-            self.status.SetStatusText("Computer is thinking...")
-        else:
-            # Status will be updated by other signals (move_made, status_changed)
-            pass
+        # No longer show thinking message - just handle the signal
+        pass
 
 
 def main():
