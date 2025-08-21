@@ -317,16 +317,22 @@ class ChessController:
         color = "White" if p.color else "Black"
 
         # detect captures if we have old board stashed
-        took = ""
-        if self._pending_old_board:
-            if self._pending_old_board.is_capture(move):
-                took = " takes"
+        captured_piece_info = ""
+        if self._pending_old_board and self._pending_old_board.is_capture(move):
+            # Get the captured piece from the old board
+            captured_piece = self._pending_old_board.piece_at(dst)
+            if captured_piece:
+                captured_name = PIECE_NAMES[captured_piece.piece_type]
+                captured_piece_info = f" takes {captured_name} at {fname_dst}"
 
         # verbose vs brief
         if self.announce_mode == "brief":
             return f"{fname_src} {fname_dst}"
         else:
-            return f"{color} {name} from {fname_src} to {fname_dst}{took}"
+            if captured_piece_info:
+                return f"{color} {name}{captured_piece_info}"
+            else:
+                return f"{color} {name} from {fname_src} to {fname_dst}"
 
     # —— Computer move handling —— #
 
