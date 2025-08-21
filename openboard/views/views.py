@@ -1,12 +1,14 @@
 import json
 import wx
 
-# ...existing code...
 import accessible_output3.outputs.auto as ao2
 
 from ..engine.engine_adapter import EngineAdapter
 from ..models.game import Game
 from ..controllers.chess_controller import ChessController
+from ..logging_config import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 # Unicode glyphs for pieces:
 PIECE_UNICODE = {
@@ -254,34 +256,47 @@ class ChessFrame(wx.Frame):
 
 
 def main():
+    # Initialize logging
+    setup_logging(log_level="INFO", console_output=True)
+    logger.info("Starting OpenBoard")
+    
     # load config
     try:
         with open("config.json") as f:
             cfg = json.load(f)
-    except Exception:
+        logger.info("Configuration loaded from config.json")
+    except Exception as e:
         cfg = {"announce_mode": "verbose"}
+        logger.info(f"Using default configuration (config.json not found or invalid: {e})")
 
     # set up engine & game
     try:
         engine = EngineAdapter(options={"Threads": 2, "Hash": 128})
         engine.start()
         game = Game(engine)
+        logger.info("Engine initialized successfully")
     except RuntimeError as e:
-        print(f"Engine initialization failed: {e}")
+        logger.warning(f"Engine initialization failed: {e}")
         # Fall back to no engine mode
         game = Game()
+        logger.info("Running in engine-free mode")
 
     # controller
     controller = ChessController(game, config=cfg)
 
     # wx App
+    logger.info("Initializing GUI")
     app = wx.App(False)
     ChessFrame(controller)
+    logger.info("Starting main event loop")
     app.MainLoop()
 
     # Clean up engine if it was created
     if game.engine:
+        logger.info("Shutting down engine")
         game.engine.stop()
+    
+    logger.info("OpenBoard shutdown complete")
 
 
 if __name__ == "__main__":

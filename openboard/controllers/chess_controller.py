@@ -5,6 +5,9 @@ from blinker import Signal
 from typing import Optional, List
 
 from ..models.game import Game
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 PIECE_NAMES = {
@@ -40,6 +43,8 @@ class ChessController:
         self.game = game
         self.config = config or {}
         self.announce_mode = self.config.get("announce_mode", "verbose")
+        
+        logger.info(f"ChessController initialized with announce mode: {self.announce_mode}")
 
         # board navigation & selection
         self.current_square: int = chess.A1  # 0

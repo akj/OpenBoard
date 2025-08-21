@@ -4,6 +4,9 @@ from blinker import Signal
 
 from .board_state import BoardState
 from ..engine.engine_adapter import EngineAdapter
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class Game:
@@ -22,6 +25,9 @@ class Game:
         """
         self.engine_adapter = engine_adapter
         self.board_state = BoardState()
+        
+        engine_status = "with engine" if engine_adapter else "without engine"
+        logger.info(f"Game initialized {engine_status}")
         # Signals:
         #   move_made: forwarded from BoardState
         #   hint_ready: emitted when engine returns a best move
