@@ -1,0 +1,26 @@
+[project]
+name = "openboard"
+version = "0.1.0"
+description = "An accessible and cross-platform chess GUI."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "accessible-output3",
+    "blinker>=1.9.0",
+    "chess>=1.11.2",
+    "wxpython>=4.2.3",
+]
+
+[project.scripts]
+openboard = "openboard.views.views:main"
+
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.404",
+    "pytest>=8.4.1",
+    "ruff>=0.12.2",
+]
+
+[tool.uv.sources]
+accessible-output3 = { git = "https://github.com/SigmaNight/accessible_output3" }
