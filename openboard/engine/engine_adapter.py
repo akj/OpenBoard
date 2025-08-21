@@ -90,13 +90,14 @@ class EngineAdapter:
         return self._engine is not None
 
     def get_best_move(
-        self, position: Union[str, chess.Board], time_ms: int = 1000
+        self, position: Union[str, chess.Board], time_ms: int = 1000, depth: Optional[int] = None
     ) -> chess.Move | None:
         """
         Synchronously get the engine's best move for the given position.
 
         :param position: either a FEN string or a chess.Board instance.
         :param time_ms: think time in milliseconds.
+        :param depth: search depth limit (optional, overrides time if provided).
         :return: a chess.Move instance.
         :raises RuntimeError: if engine isn't started.
         :raises ValueError: if the FEN is invalid.
@@ -115,7 +116,12 @@ class EngineAdapter:
         else:
             raise TypeError("position must be a FEN string or chess.Board")
 
-        limit = chess.engine.Limit(time=time_ms / 1000.0)
+        # Create search limit - prefer depth over time if specified
+        if depth is not None:
+            limit = chess.engine.Limit(depth=depth)
+        else:
+            limit = chess.engine.Limit(time=time_ms / 1000.0)
+            
         try:
             result = self._engine.play(board, limit)
             return result.move

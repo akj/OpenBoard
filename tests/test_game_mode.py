@@ -64,8 +64,8 @@ def test_get_difficulty_config():
     """Test get_difficulty_config function."""
     config = get_difficulty_config(DifficultyLevel.BEGINNER)
     assert config.name == "Beginner"
-    assert config.time_ms == 150
-    assert config.depth == 2
+    assert config.time_ms == 100
+    assert config.depth == 1
 
 
 def test_difficulty_configs_complete():
@@ -144,7 +144,7 @@ def test_game_request_computer_move_wrong_mode():
     config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
     game = Game(config=config)
     
-    with pytest.raises(RuntimeError, match="Not in human vs computer mode"):
+    with pytest.raises(RuntimeError, match="Not in a computer vs mode"):
         game.request_computer_move()
 
 
@@ -170,11 +170,12 @@ def test_game_request_computer_move_success():
     assert move == chess.Move.from_uci("e7e5")
     mock_engine.get_best_move.assert_called_once()
     
-    # Check that difficulty time was used
+    # Check that difficulty time and depth were used
     call_args = mock_engine.get_best_move.call_args
     difficulty_config = get_difficulty_config(DifficultyLevel.BEGINNER)
-    # call_args is (args, kwargs), we want the second positional argument
+    # call_args is (args, kwargs), we want the second and third positional arguments
     assert call_args[0][1] == difficulty_config.time_ms
+    assert call_args[0][2] == difficulty_config.depth
 
 
 def test_game_new_game_with_config():
@@ -192,3 +193,95 @@ def test_game_new_game_with_config():
     assert game.config == config
     assert game.computer_color == chess.WHITE
     assert game.player_color == chess.BLACK  # Backward compatibility
+
+
+def test_computer_vs_computer_config():
+    """Test computer vs computer game configuration."""
+    config = GameConfig(
+        mode=GameMode.COMPUTER_VS_COMPUTER,
+        white_difficulty=DifficultyLevel.BEGINNER,
+        black_difficulty=DifficultyLevel.ADVANCED
+    )
+    
+    assert config.mode == GameMode.COMPUTER_VS_COMPUTER
+    assert config.white_difficulty == DifficultyLevel.BEGINNER
+    assert config.black_difficulty == DifficultyLevel.ADVANCED
+
+
+def test_computer_vs_computer_config_validation():
+    """Test computer vs computer config validation."""
+    # Missing white difficulty
+    with pytest.raises(ValueError, match="Both white_difficulty and black_difficulty must be specified"):
+        GameConfig(
+            mode=GameMode.COMPUTER_VS_COMPUTER,
+            black_difficulty=DifficultyLevel.INTERMEDIATE
+        )
+    
+    # Missing black difficulty
+    with pytest.raises(ValueError, match="Both white_difficulty and black_difficulty must be specified"):
+        GameConfig(
+            mode=GameMode.COMPUTER_VS_COMPUTER,
+            white_difficulty=DifficultyLevel.INTERMEDIATE
+        )
+
+
+def test_computer_vs_computer_is_computer_turn():
+    """Test is_computer_turn for computer vs computer mode."""
+    config = GameConfig(
+        mode=GameMode.COMPUTER_VS_COMPUTER,
+        white_difficulty=DifficultyLevel.BEGINNER,
+        black_difficulty=DifficultyLevel.ADVANCED
+    )
+    game = Game(config=config)
+    
+    # Should always be computer turn in computer vs computer mode
+    assert game.is_computer_turn()
+
+
+def test_computer_vs_computer_move_white():
+    """Test computer move for white in computer vs computer mode."""
+    mock_engine = Mock(spec=EngineAdapter)
+    mock_engine.get_best_move.return_value = chess.Move.from_uci("e2e4")
+    
+    config = GameConfig(
+        mode=GameMode.COMPUTER_VS_COMPUTER,
+        white_difficulty=DifficultyLevel.BEGINNER,
+        black_difficulty=DifficultyLevel.ADVANCED
+    )
+    game = Game(engine_adapter=mock_engine, config=config)
+    
+    # Request white's first move
+    move = game.request_computer_move()
+    
+    assert move == chess.Move.from_uci("e2e4")
+    # Should use white difficulty (BEGINNER = 150ms, depth=2)
+    difficulty_config = get_difficulty_config(DifficultyLevel.BEGINNER)
+    call_args = mock_engine.get_best_move.call_args
+    assert call_args[0][1] == difficulty_config.time_ms
+    assert call_args[0][2] == difficulty_config.depth
+
+
+def test_computer_vs_computer_move_black():
+    """Test computer move for black in computer vs computer mode."""
+    mock_engine = Mock(spec=EngineAdapter)
+    mock_engine.get_best_move.return_value = chess.Move.from_uci("e7e5")
+    
+    config = GameConfig(
+        mode=GameMode.COMPUTER_VS_COMPUTER,
+        white_difficulty=DifficultyLevel.BEGINNER,
+        black_difficulty=DifficultyLevel.ADVANCED
+    )
+    game = Game(engine_adapter=mock_engine, config=config)
+    
+    # Make white's move first
+    game.apply_move(chess.E2, chess.E4)
+    
+    # Request black's move
+    move = game.request_computer_move()
+    
+    assert move == chess.Move.from_uci("e7e5")
+    # Should use black difficulty (ADVANCED = 1500ms, depth=6)
+    difficulty_config = get_difficulty_config(DifficultyLevel.ADVANCED)
+    call_args = mock_engine.get_best_move.call_args
+    assert call_args[0][1] == difficulty_config.time_ms
+    assert call_args[0][2] == difficulty_config.depth

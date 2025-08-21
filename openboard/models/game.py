@@ -127,11 +127,14 @@ class Game:
 
     def is_computer_turn(self) -> bool:
         """
-        Check if it's the computer's turn in human vs computer mode.
+        Check if it's the computer's turn.
         """
-        if self.config.mode != GameMode.HUMAN_VS_COMPUTER:
+        if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
+            return self.board_state.board.turn == self.computer_color
+        elif self.config.mode == GameMode.COMPUTER_VS_COMPUTER:
+            return True  # Always computer turn in computer vs computer mode
+        else:
             return False
-        return self.board_state.board.turn == self.computer_color
 
     def request_computer_move(self) -> chess.Move | None:
         """
@@ -139,18 +142,35 @@ class Game:
         Uses difficulty-based timing and emits computer_move_ready signal.
         :raises RuntimeError if no engine_adapter is set or not in computer mode.
         """
-        if self.config.mode != GameMode.HUMAN_VS_COMPUTER:
-            raise RuntimeError("Not in human vs computer mode")
+        if self.config.mode not in [GameMode.HUMAN_VS_COMPUTER, GameMode.COMPUTER_VS_COMPUTER]:
+            raise RuntimeError("Not in a computer vs mode")
         if not self.engine_adapter:
             raise RuntimeError("No chess engine available for computer opponent")
-        if not self.config.difficulty:
-            raise RuntimeError("No difficulty level set for computer opponent")
         
-        difficulty_config = get_difficulty_config(self.config.difficulty)
+        # Determine which difficulty to use based on whose turn it is
+        difficulty_config = None
+        if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
+            if not self.config.difficulty:
+                raise RuntimeError("No difficulty level set for computer opponent")
+            difficulty_config = get_difficulty_config(self.config.difficulty)
+        elif self.config.mode == GameMode.COMPUTER_VS_COMPUTER:
+            current_turn = self.board_state.board.turn
+            if current_turn == chess.WHITE:
+                if not self.config.white_difficulty:
+                    raise RuntimeError("No difficulty level set for white computer")
+                difficulty_config = get_difficulty_config(self.config.white_difficulty)
+            else:
+                if not self.config.black_difficulty:
+                    raise RuntimeError("No difficulty level set for black computer")
+                difficulty_config = get_difficulty_config(self.config.black_difficulty)
+        
+        if difficulty_config is None:
+            raise RuntimeError("Unable to determine difficulty configuration")
+        
         fen = self.board_state._board.fen()
         
-        # Use difficulty-based timing
-        best_move = self.engine_adapter.get_best_move(fen, difficulty_config.time_ms)
+        # Use difficulty-based timing and/or depth
+        best_move = self.engine_adapter.get_best_move(fen, difficulty_config.time_ms, difficulty_config.depth)
         
         if best_move:
             # Apply the computer's move

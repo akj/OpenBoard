@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from openboard.engine.stockfish_manager import StockfishManager
 from openboard.engine.downloader import StockfishDownloader

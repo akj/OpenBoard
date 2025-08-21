@@ -6,6 +6,7 @@ from typing import Optional, List
 import threading
 
 from ..models.game import Game
+from ..models.game_mode import GameMode
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -148,6 +149,11 @@ class ChessController:
         # Prevent moves during computer thinking
         if self._computer_thinking:
             self.announce.send(self, text="Computer is thinking, please wait")
+            return
+            
+        # Disable selection entirely for computer vs computer mode
+        if self.game.config.mode == GameMode.COMPUTER_VS_COMPUTER:
+            self.announce.send(self, text="Manual moves not allowed in computer vs computer mode")
             return
             
         # Prevent human moves when it's computer's turn

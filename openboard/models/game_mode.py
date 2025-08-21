@@ -10,6 +10,7 @@ class GameMode(Enum):
     """Supported game modes."""
     HUMAN_VS_HUMAN = "human_vs_human"
     HUMAN_VS_COMPUTER = "human_vs_computer"
+    COMPUTER_VS_COMPUTER = "computer_vs_computer"
 
 
 class DifficultyLevel(Enum):
@@ -35,11 +36,16 @@ class GameConfig:
     mode: GameMode
     human_color: chess.Color = chess.WHITE
     difficulty: Optional[DifficultyLevel] = None
+    white_difficulty: Optional[DifficultyLevel] = None
+    black_difficulty: Optional[DifficultyLevel] = None
     
     def __post_init__(self):
         """Validate configuration."""
         if self.mode == GameMode.HUMAN_VS_COMPUTER and self.difficulty is None:
             raise ValueError("Difficulty must be specified for human vs computer mode")
+        elif self.mode == GameMode.COMPUTER_VS_COMPUTER:
+            if self.white_difficulty is None or self.black_difficulty is None:
+                raise ValueError("Both white_difficulty and black_difficulty must be specified for computer vs computer mode")
 
 
 # Difficulty level configurations

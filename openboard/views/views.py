@@ -9,7 +9,7 @@ from ..models.game import Game
 from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
-from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog
+from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog, show_computer_vs_computer_dialog
 
 logger = get_logger(__name__)
 
@@ -163,6 +163,7 @@ class ChessFrame(wx.Frame):
         game_menu = wx.Menu()
         game_menu.Append(wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N")
         game_menu.Append(wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M")
+        game_menu.Append(wx.ID_ANY, "New Game: Computer vs Computer\tCtrl-K")
         game_menu.AppendSeparator()
         game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
         menu_bar.Append(game_menu, "&Game")
@@ -193,7 +194,8 @@ class ChessFrame(wx.Frame):
         # Bind game menu events
         self.Bind(wx.EVT_MENU, self.on_new_human_vs_human, id=game_menu.GetMenuItems()[0].GetId())
         self.Bind(wx.EVT_MENU, self.on_new_human_vs_computer, id=game_menu.GetMenuItems()[1].GetId())
-        self.Bind(wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[3].GetId())
+        self.Bind(wx.EVT_MENU, self.on_new_computer_vs_computer, id=game_menu.GetMenuItems()[2].GetId())
+        self.Bind(wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[4].GetId())
         
         self.Bind(
             wx.EVT_MENU,
@@ -443,6 +445,31 @@ class ChessFrame(wx.Frame):
             self.speech.speak(message)
             
             # If computer plays white, start its move
+            if self.controller.game.is_computer_turn():
+                self.controller._request_computer_move_async()
+
+    def on_new_computer_vs_computer(self, event):
+        """Handle Game > New Game: Computer vs Computer menu selection."""
+        if not self.controller.game.engine_adapter:
+            wx.MessageBox(
+                "No chess engine available. Please install Stockfish to play computer vs computer games.",
+                "Engine Required",
+                wx.OK | wx.ICON_WARNING
+            )
+            return
+        
+        result = show_computer_vs_computer_dialog(self)
+        if result:
+            white_difficulty, black_difficulty = result
+            config = GameConfig(
+                mode=GameMode.COMPUTER_VS_COMPUTER,
+                white_difficulty=white_difficulty,
+                black_difficulty=black_difficulty
+            )
+            self.controller.game.new_game(config)
+            self.speech.speak(f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}")
+            
+            # Start the first computer move if it's white's turn
             if self.controller.game.is_computer_turn():
                 self.controller._request_computer_move_async()
 

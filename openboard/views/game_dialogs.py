@@ -165,6 +165,115 @@ def show_game_setup_dialog(parent) -> Optional[Tuple[chess.Color, DifficultyLeve
     return None
 
 
+class ComputerVsComputerDialog(wx.Dialog):
+    """Dialog for setting up a computer vs computer game."""
+    
+    def __init__(self, parent):
+        super().__init__(parent, title="New Computer vs Computer Game", 
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        
+        self.white_difficulty: DifficultyLevel = DifficultyLevel.INTERMEDIATE
+        self.black_difficulty: DifficultyLevel = DifficultyLevel.INTERMEDIATE
+        
+        self._create_controls()
+        self._layout_controls()
+        self._bind_events()
+        
+        # Set initial focus
+        self.white_choice.SetFocus()
+
+    def _create_controls(self):
+        """Create dialog controls."""
+        # White computer difficulty selection
+        self.white_label = wx.StaticText(self, label="White computer difficulty:")
+        self.white_choice = wx.Choice(self)
+        
+        # Black computer difficulty selection
+        self.black_label = wx.StaticText(self, label="Black computer difficulty:")
+        self.black_choice = wx.Choice(self)
+        
+        # Populate difficulty choices for both
+        for choice in [self.white_choice, self.black_choice]:
+            for level in DifficultyLevel:
+                config = DIFFICULTY_CONFIGS[level]
+                label = f"{config.name} - {config.description}"
+                choice.Append(label, level)
+            
+            # Set default to Intermediate
+            for i, level in enumerate(DifficultyLevel):
+                if level == DifficultyLevel.INTERMEDIATE:
+                    choice.SetSelection(i)
+                    break
+        
+        # Buttons
+        self.ok_button = wx.Button(self, wx.ID_OK, "Start Game")
+        self.cancel_button = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        
+        # Make OK button default
+        self.ok_button.SetDefault()
+
+    def _layout_controls(self):
+        """Layout dialog controls."""
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # White difficulty selection section
+        white_box = wx.StaticBoxSizer(wx.VERTICAL, self, "White Computer")
+        white_box.Add(self.white_label, 0, wx.ALL, 5)
+        white_box.Add(self.white_choice, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Black difficulty selection section  
+        black_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Black Computer")
+        black_box.Add(self.black_label, 0, wx.ALL, 5)
+        black_box.Add(self.black_choice, 0, wx.ALL | wx.EXPAND, 5)
+        
+        # Button section
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        button_sizer.Add(self.ok_button, 0, wx.ALL, 5)
+        button_sizer.Add(self.cancel_button, 0, wx.ALL, 5)
+        
+        # Main layout
+        main_sizer.Add(white_box, 0, wx.ALL | wx.EXPAND, 10)
+        main_sizer.Add(black_box, 0, wx.ALL | wx.EXPAND, 10)
+        main_sizer.Add(button_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 10)
+        
+        self.SetSizer(main_sizer)
+        self.Fit()
+
+    def _bind_events(self):
+        """Bind event handlers."""
+        self.white_choice.Bind(wx.EVT_CHOICE, self._on_white_difficulty_change)
+        self.black_choice.Bind(wx.EVT_CHOICE, self._on_black_difficulty_change)
+
+    def _on_white_difficulty_change(self, event):
+        """Handle white difficulty selection change."""
+        selection = self.white_choice.GetSelection()
+        if selection != wx.NOT_FOUND:
+            self.white_difficulty = self.white_choice.GetClientData(selection)
+
+    def _on_black_difficulty_change(self, event):
+        """Handle black difficulty selection change."""
+        selection = self.black_choice.GetSelection()
+        if selection != wx.NOT_FOUND:
+            self.black_difficulty = self.black_choice.GetClientData(selection)
+
+    def get_game_config(self) -> Tuple[DifficultyLevel, DifficultyLevel]:
+        """Get the selected game configuration."""
+        return self.white_difficulty, self.black_difficulty
+
+
+def show_computer_vs_computer_dialog(parent) -> Optional[Tuple[DifficultyLevel, DifficultyLevel]]:
+    """
+    Show the computer vs computer setup dialog and return the selected configuration.
+    
+    Returns:
+        Tuple of (white_difficulty, black_difficulty) if OK was clicked, None if cancelled.
+    """
+    with ComputerVsComputerDialog(parent) as dialog:
+        if dialog.ShowModal() == wx.ID_OK:
+            return dialog.get_game_config()
+    return None
+
+
 def show_difficulty_info_dialog(parent):
     """Show the difficulty information dialog."""
     with DifficultyInfoDialog(parent) as dialog:
