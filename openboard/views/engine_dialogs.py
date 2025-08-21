@@ -1,10 +1,13 @@
 """Progress dialogs and engine-related UI components."""
 
+import logging
 import wx
 import threading
 from typing import Optional, Callable
 
 from ..engine.stockfish_manager import StockfishManager
+
+logger = logging.getLogger(__name__)
 
 
 class EngineProgressDialog(wx.ProgressDialog):
@@ -18,21 +21,29 @@ class EngineProgressDialog(wx.ProgressDialog):
             message=message,
             maximum=100,
             parent=parent,
-            style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL | wx.PD_CAN_ABORT
+            style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL | wx.PD_CAN_ABORT | wx.PD_SMOOTH
         )
         
         self.was_cancelled = False
 
     def update_progress(self, current: int, message: str = None):
         """Update progress and optionally change message."""
-        if message:
-            self.Update(current, message)
-        else:
-            self.Update(current)
+        try:
+            if message:
+                continue_flag, skip_flag = self.Update(current, message)
+            else:
+                continue_flag, skip_flag = self.Update(current)
             
-        # Check if user cancelled
-        if not self.Update(current)[0]:  # Update returns (continue, skip)
-            self.was_cancelled = True
+            # Check if user cancelled
+            if not continue_flag:
+                self.was_cancelled = True
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Progress dialog update failed: {e}")
+            return False
 
 
 class EngineStatusDialog(wx.Dialog):
@@ -210,10 +221,15 @@ class EngineInstallationRunner:
         )
         self.installation_thread.start()
         
-        # Show modal progress dialog
-        result = self.progress_dialog.ShowModal()
+        # Show modal progress dialog - give the thread a moment to start
+        wx.CallAfter(self._show_dialog)
         
-        return result != wx.ID_CANCEL
+        return True
+    
+    def _show_dialog(self):
+        """Show the progress dialog after a brief delay to avoid event loop issues."""
+        if self.progress_dialog:
+            self.progress_dialog.ShowModal()
 
     def _run_installation(self):
         """Run installation in background thread."""
@@ -254,21 +270,33 @@ class EngineInstallationRunner:
     def _on_installation_completed(self, sender, success, message):
         """Handle installation completed signal."""
         def update_ui():
-            if self.progress_dialog:
-                if success:
-                    self.progress_dialog.update_progress(100, "Installation complete!")
-                    wx.MessageBox(
-                        message,
-                        "Installation Complete",
-                        wx.OK | wx.ICON_INFORMATION
-                    )
-                else:
-                    wx.MessageBox(
-                        message,
-                        "Installation Failed", 
-                        wx.OK | wx.ICON_ERROR
-                    )
+            try:
+                if self.progress_dialog:
+                    if success:
+                        self.progress_dialog.update_progress(100, "Installation complete!")
+                        # Close progress dialog first
+                        self.progress_dialog.EndModal(wx.ID_OK)
+                        
+                        # Then show success message
+                        wx.MessageBox(
+                            message,
+                            "Installation Complete",
+                            wx.OK | wx.ICON_INFORMATION
+                        )
+                    else:
+                        # Close progress dialog first
+                        self.progress_dialog.EndModal(wx.ID_CANCEL)
+                        
+                        # Then show error message
+                        wx.MessageBox(
+                            message,
+                            "Installation Failed", 
+                            wx.OK | wx.ICON_ERROR
+                        )
+                        
+                    self.progress_dialog = None
                     
-                self.progress_dialog.EndModal(wx.ID_OK if success else wx.ID_CANCEL)
+            except Exception as e:
+                logger.error(f"Error in installation completion handler: {e}")
                 
         wx.CallAfter(update_ui)

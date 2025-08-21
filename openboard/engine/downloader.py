@@ -180,14 +180,33 @@ class StockfishDownloader:
         Returns:
             Path to executable or None if not found
         """
-        # Common executable names
-        exe_names = ["stockfish.exe", "stockfish"]
+        # Common executable names and patterns
+        exe_patterns = [
+            "stockfish.exe",
+            "stockfish",
+            "**/stockfish.exe", 
+            "**/stockfish",
+            "**/*stockfish*.exe",
+            "**/*stockfish*"
+        ]
         
-        # Search recursively for the executable
-        for exe_name in exe_names:
-            for exe_path in extract_dir.rglob(exe_name):
-                if exe_path.is_file():
-                    return exe_path
+        # Search recursively for the executable using glob patterns
+        for pattern in exe_patterns:
+            for exe_path in extract_dir.glob(pattern):
+                if exe_path.is_file() and exe_path.name.lower().startswith('stockfish'):
+                    # Additional check to ensure it's likely an executable
+                    if exe_path.suffix.lower() in ['.exe', ''] and exe_path.stat().st_size > 1000:
+                        logger.info(f"Found Stockfish executable: {exe_path}")
+                        return exe_path
+        
+        # If not found, list directory contents for debugging
+        logger.error(f"Could not find Stockfish executable in {extract_dir}")
+        logger.error("Directory contents:")
+        for item in extract_dir.rglob("*"):
+            if item.is_file():
+                logger.error(f"  File: {item} (size: {item.stat().st_size})")
+            else:
+                logger.error(f"  Dir:  {item}/")
                     
         return None
 
