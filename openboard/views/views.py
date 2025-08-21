@@ -161,6 +161,14 @@ class ChessFrame(wx.Frame):
         options_menu.Append(wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T")
         menu_bar.Append(options_menu, "&Options")
 
+        # Engine menu
+        engine_menu = wx.Menu()
+        engine_menu.Append(wx.ID_ANY, "&Install Stockfish...")
+        engine_menu.Append(wx.ID_ANY, "&Update Stockfish...")
+        engine_menu.AppendSeparator()
+        engine_menu.Append(wx.ID_ANY, "Check Engine &Status...")
+        menu_bar.Append(engine_menu, "&Engine")
+
         self.SetMenuBar(menu_bar)
         self.status = self.CreateStatusBar()
 
@@ -176,6 +184,11 @@ class ChessFrame(wx.Frame):
             lambda e: controller.toggle_announce_mode(),
             id=options_menu.GetMenuItems()[0].GetId(),
         )
+        
+        # Bind engine menu events  
+        self.Bind(wx.EVT_MENU, self.on_install_stockfish, id=engine_menu.GetMenuItems()[0].GetId())
+        self.Bind(wx.EVT_MENU, self.on_update_stockfish, id=engine_menu.GetMenuItems()[1].GetId()) 
+        self.Bind(wx.EVT_MENU, self.on_check_engine_status, id=engine_menu.GetMenuItems()[3].GetId())
 
         # Bind key events for navigation & commands
         self.board_panel.Bind(wx.EVT_CHAR_HOOK, self.on_key)
@@ -253,6 +266,85 @@ class ChessFrame(wx.Frame):
     def on_status_changed(self, sender, status: str):
         """Update the status bar on game-status changes."""
         self.status.SetStatusText(status)
+
+    def on_install_stockfish(self, event):
+        """Handle Engine > Install Stockfish menu selection."""
+        from ..engine.stockfish_manager import StockfishManager
+        from .engine_dialogs import EngineInstallationRunner
+        
+        manager = StockfishManager()
+        
+        if not manager.can_install():
+            instructions = manager.get_installation_instructions()
+            wx.MessageBox(
+                f"Automatic installation is not supported on this platform.\n\n{instructions}",
+                "Manual Installation Required",
+                wx.OK | wx.ICON_INFORMATION
+            )
+            return
+            
+        # Check if already installed
+        status = manager.get_status()
+        if status["local_installed"] and not status["update_available"]:
+            result = wx.MessageBox(
+                f"Stockfish {status['local_version']} is already installed.\n\nDo you want to reinstall?",
+                "Already Installed",
+                wx.YES_NO | wx.ICON_QUESTION
+            )
+            if result != wx.YES:
+                return
+                
+        # Run installation
+        runner = EngineInstallationRunner(self, manager)
+        runner.start_installation()
+
+    def on_update_stockfish(self, event):
+        """Handle Engine > Update Stockfish menu selection."""
+        from ..engine.stockfish_manager import StockfishManager
+        from .engine_dialogs import EngineInstallationRunner
+        
+        manager = StockfishManager()
+        status = manager.get_status()
+        
+        if not status["local_installed"]:
+            result = wx.MessageBox(
+                "No local Stockfish installation found.\n\nWould you like to install it now?",
+                "Not Installed",
+                wx.YES_NO | wx.ICON_QUESTION
+            )
+            if result == wx.YES:
+                self.on_install_stockfish(event)
+            return
+            
+        if not status["update_available"]:
+            wx.MessageBox(
+                f"Stockfish {status['local_version']} is already up to date.",
+                "Up to Date",
+                wx.OK | wx.ICON_INFORMATION
+            )
+            return
+            
+        # Run update
+        runner = EngineInstallationRunner(self, manager)
+        runner.start_installation()
+
+    def on_check_engine_status(self, event):
+        """Handle Engine > Check Engine Status menu selection."""
+        from ..engine.stockfish_manager import StockfishManager
+        from .engine_dialogs import EngineStatusDialog
+        
+        manager = StockfishManager()
+        
+        with EngineStatusDialog(self, manager) as dialog:
+            result = dialog.ShowModal()
+            
+            # If user clicked Install/Update, trigger installation
+            if result == wx.ID_OK:
+                status = manager.get_status()
+                if status["update_available"]:
+                    self.on_update_stockfish(event)
+                else:
+                    self.on_install_stockfish(event)
 
 
 def main():
