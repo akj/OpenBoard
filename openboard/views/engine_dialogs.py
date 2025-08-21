@@ -25,6 +25,23 @@ class EngineProgressDialog(wx.ProgressDialog):
         )
         
         self.was_cancelled = False
+        self._is_showing_modal = False
+
+    def ShowModal(self):
+        """Override ShowModal to track modal state."""
+        try:
+            self._is_showing_modal = True
+            return super().ShowModal()
+        finally:
+            self._is_showing_modal = False
+    
+    def EndModal(self, retCode):
+        """Override EndModal to safely handle state."""
+        if self._is_showing_modal:
+            self._is_showing_modal = False
+            super().EndModal(retCode)
+        else:
+            logger.warning("EndModal called on non-modal dialog, ignoring")
 
     def update_progress(self, current: int, message: str = None):
         """Update progress and optionally change message."""
@@ -221,15 +238,13 @@ class EngineInstallationRunner:
         )
         self.installation_thread.start()
         
-        # Show modal progress dialog - give the thread a moment to start
-        wx.CallAfter(self._show_dialog)
-        
-        return True
-    
-    def _show_dialog(self):
-        """Show the progress dialog after a brief delay to avoid event loop issues."""
-        if self.progress_dialog:
-            self.progress_dialog.ShowModal()
+        # Show modal progress dialog immediately - this is safer than wx.CallAfter
+        try:
+            result = self.progress_dialog.ShowModal()
+            return result != wx.ID_CANCEL
+        except Exception as e:
+            logger.error(f"Failed to show progress dialog: {e}")
+            return False
 
     def _run_installation(self):
         """Run installation in background thread."""
@@ -272,31 +287,49 @@ class EngineInstallationRunner:
         def update_ui():
             try:
                 if self.progress_dialog:
-                    if success:
-                        self.progress_dialog.update_progress(100, "Installation complete!")
-                        # Close progress dialog first
-                        self.progress_dialog.EndModal(wx.ID_OK)
-                        
-                        # Then show success message
-                        wx.MessageBox(
-                            message,
-                            "Installation Complete",
-                            wx.OK | wx.ICON_INFORMATION
-                        )
-                    else:
-                        # Close progress dialog first
-                        self.progress_dialog.EndModal(wx.ID_CANCEL)
-                        
-                        # Then show error message
-                        wx.MessageBox(
-                            message,
-                            "Installation Failed", 
-                            wx.OK | wx.ICON_ERROR
-                        )
-                        
+                    # Update progress to 100%
+                    self.progress_dialog.update_progress(100, "Installation complete!" if success else "Installation failed!")
+                    
+                    # Safely close the dialog using our custom modal tracking
+                    try:
+                        if hasattr(self.progress_dialog, '_is_showing_modal') and self.progress_dialog._is_showing_modal:
+                            self.progress_dialog.EndModal(wx.ID_OK if success else wx.ID_CANCEL)
+                        else:
+                            # Dialog not modal, try to close it normally
+                            self.progress_dialog.Close()
+                    except Exception as e:
+                        logger.warning(f"Could not close progress dialog normally: {e}")
+                        # Force close if needed
+                        try:
+                            self.progress_dialog.Destroy()
+                        except:
+                            pass
+                    
+                    # Clear the dialog reference
                     self.progress_dialog = None
+                    
+                    # Show completion message after dialog is closed
+                    wx.CallAfter(self._show_completion_message, success, message)
                     
             except Exception as e:
                 logger.error(f"Error in installation completion handler: {e}")
                 
         wx.CallAfter(update_ui)
+    
+    def _show_completion_message(self, success: bool, message: str):
+        """Show the final completion message after dialog cleanup."""
+        try:
+            if success:
+                wx.MessageBox(
+                    message,
+                    "Installation Complete",
+                    wx.OK | wx.ICON_INFORMATION
+                )
+            else:
+                wx.MessageBox(
+                    message,
+                    "Installation Failed", 
+                    wx.OK | wx.ICON_ERROR
+                )
+        except Exception as e:
+            logger.error(f"Failed to show completion message: {e}")
