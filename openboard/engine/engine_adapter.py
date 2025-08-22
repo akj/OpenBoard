@@ -195,11 +195,13 @@ class EngineAdapter:
         else:
             raise TypeError("position must be a FEN string or chess.Board")
 
-        # Create search limit - prefer depth over time if specified
-        if depth is not None:
+        # Create search limit - prefer time over depth for consistent difficulty
+        if time_ms > 0:
+            limit = chess.engine.Limit(time=time_ms / 1000.0)
+        elif depth is not None:
             limit = chess.engine.Limit(depth=depth)
         else:
-            limit = chess.engine.Limit(time=time_ms / 1000.0)
+            limit = chess.engine.Limit(time=1.0)  # fallback
 
         try:
             result = await self._engine.play(board, limit)

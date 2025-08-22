@@ -53,26 +53,26 @@ DIFFICULTY_CONFIGS = {
     DifficultyLevel.BEGINNER: DifficultyConfig(
         name="Beginner",
         description="Easy opponent, good for learning",
-        time_ms=100,
-        depth=1
+        time_ms=150,
+        depth=2
     ),
     DifficultyLevel.INTERMEDIATE: DifficultyConfig(
         name="Intermediate", 
         description="Moderate challenge",
         time_ms=500,
-        depth=3
+        depth=4
     ),
     DifficultyLevel.ADVANCED: DifficultyConfig(
         name="Advanced",
         description="Strong opponent",
-        time_ms=2000,
-        depth=8
+        time_ms=1500,
+        depth=6
     ),
     DifficultyLevel.MASTER: DifficultyConfig(
         name="Master",
         description="Very strong opponent",
-        time_ms=10000,
-        depth=15
+        time_ms=5000,
+        depth=10
     )
 }
 

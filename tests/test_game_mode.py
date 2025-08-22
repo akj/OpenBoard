@@ -64,8 +64,8 @@ def test_get_difficulty_config():
     """Test get_difficulty_config function."""
     config = get_difficulty_config(DifficultyLevel.BEGINNER)
     assert config.name == "Beginner"
-    assert config.time_ms == 100
-    assert config.depth == 1
+    assert config.time_ms == 150
+    assert config.depth == 2
 
 
 def test_difficulty_configs_complete():
