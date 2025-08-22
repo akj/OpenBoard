@@ -292,36 +292,53 @@ class EngineAdapter:
             # Signal shutdown to prevent new operations
             self._shutdown_event.set()
 
-            # Cancel all active futures
+        # Cancel all active futures first
+        with self._state_lock:
             for future in list(self._active_futures):
                 if not future.done():
                     future.cancel()
 
-            # Shutdown engine if running
-            if self._loop and not self._loop.is_closed() and self._engine:
+        # Phase 1: Graceful engine shutdown with proper cleanup order
+        if self._loop and not self._loop.is_closed() and self._engine:
+            try:
+                # Schedule engine shutdown and wait for completion
                 future = asyncio.run_coroutine_threadsafe(
-                    self._stop_engine(), self._loop
+                    self._shutdown_engine_gracefully(), self._loop
                 )
-                try:
-                    future.result(timeout=10.0)  # Increased timeout for proper cleanup
-                except Exception as e:
-                    self._logger.warning(f"Error while stopping engine: {e}")
+                future.result(timeout=8.0)  # Allow time for proper cleanup
+                self._logger.debug("Engine shutdown completed successfully")
+            except Exception as e:
+                self._logger.warning(f"Error during engine shutdown: {e}")
+                # Continue with forced cleanup
 
-            # Stop the event loop gracefully
-            if self._loop and not self._loop.is_closed():
-                try:
-                    # Schedule loop stop
-                    self._loop.call_soon_threadsafe(self._loop.stop)
-                except RuntimeError:
-                    pass  # Loop may already be stopped
+        # Phase 2: Allow event loop to finish pending operations
+        if self._loop and not self._loop.is_closed():
+            try:
+                # Give event loop time to finish transport cleanup
+                cleanup_future = asyncio.run_coroutine_threadsafe(
+                    self._finalize_cleanup(), self._loop
+                )
+                cleanup_future.result(timeout=2.0)
+                self._logger.debug("Event loop cleanup completed")
+            except Exception as e:
+                # Cleanup warnings are expected during shutdown
+                self._logger.debug(f"Event loop cleanup warning: {e}")
+                pass  # Continue with shutdown
 
-        # Wait for thread to finish with proper timeout
+        # Phase 3: Stop event loop after all cleanup is done
+        if self._loop and not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except RuntimeError:
+                pass  # Loop may already be stopped
+
+        # Phase 4: Wait for thread termination
         if self._engine_thread and self._engine_thread.is_alive():
-            self._engine_thread.join(timeout=5.0)
+            self._engine_thread.join(timeout=3.0)
             if self._engine_thread.is_alive():
                 self._logger.warning("Engine thread did not terminate within timeout")
 
-        # Clean up state
+        # Phase 5: Final state cleanup
         with self._state_lock:
             self._engine = None
             self._transport = None
@@ -329,29 +346,60 @@ class EngineAdapter:
             self._engine_thread = None
             self._active_futures.clear()
 
-    async def _stop_engine(self) -> None:
-        """Stop the engine using async API with proper resource cleanup."""
+    async def _shutdown_engine_gracefully(self) -> None:
+        """Gracefully shutdown engine with proper resource cleanup order."""
         try:
+            # Step 1: Stop the engine properly and wait for completion
             if self._engine:
-                # Give engine time to finish current operations
-                await asyncio.sleep(0.1)
-                await self._engine.quit()
-        except Exception as e:
-            self._logger.warning(f"Error while quitting engine: {e}")
-        finally:
-            # Ensure transport is properly closed
-            if self._transport and not self._transport.is_closing():
+                self._logger.debug("Sending quit command to engine")
                 try:
-                    self._transport.terminate()
-                    # Wait briefly for graceful termination
-                    await asyncio.sleep(0.5)
-                    if self._transport.get_returncode() is None:
-                        self._transport.kill()  # Force kill if still running
+                    # Give engine a moment to finish current operations
+                    await asyncio.sleep(0.05)
+                    await asyncio.wait_for(self._engine.quit(), timeout=2.0)
+                    self._logger.debug("Engine quit command completed")
+                except asyncio.TimeoutError:
+                    self._logger.debug("Engine quit command timed out - continuing with cleanup")
                 except Exception as e:
-                    self._logger.warning(f"Error terminating engine process: {e}")
+                    self._logger.debug(f"Error sending quit to engine: {e}")
 
-            # Thread-safe cleanup of state
-            # Note: These will be cleaned up again in stop() under lock
+            # Step 2: Clean up transport synchronously to avoid event loop issues
+            if self._transport and not self._transport.is_closing():
+                self._logger.debug("Cleaning up engine transport")
+                try:
+                    # Close transport immediately to prevent it from trying to use closed loop later
+                    if hasattr(self._transport, 'close'):
+                        self._transport.close()
+                    
+                    # Then terminate process
+                    try:
+                        self._transport.terminate()
+                        # Brief wait for termination
+                        await asyncio.sleep(0.1)
+                        
+                        # Force kill if needed
+                        if self._transport.get_returncode() is None:
+                            self._transport.kill()
+                    except Exception:
+                        pass  # Ignore termination errors after close()
+                        
+                    self._logger.debug("Engine transport cleanup completed")
+                    
+                except Exception as e:
+                    self._logger.debug(f"Transport cleanup warning: {e}")
+
+            # Step 3: Final small delay to ensure all async operations complete  
+            await asyncio.sleep(0.05)
+
+        except Exception as e:
+            self._logger.debug(f"Engine shutdown completed with warnings: {e}")
+
+    async def _finalize_cleanup(self) -> None:
+        """Final cleanup phase - minimal wait for pending operations."""
+        try:
+            # Give event loop a moment to finish any remaining I/O operations
+            await asyncio.sleep(0.1)
+        except Exception:
+            pass  # Ignore any errors during final cleanup
 
     def is_running(self) -> bool:
         """Returns True if the engine is currently running."""
