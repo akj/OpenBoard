@@ -85,9 +85,10 @@ class ChessController:
         # tell view the board changed
         self._emit_board_update()
 
-        # announce the move
-        ann = self._format_move_announcement(move)
-        self.announce.send(self, text=ann)
+        # announce the move (skip if move is None, e.g., from load_fen)
+        if move is not None:
+            ann = self._format_move_announcement(move)
+            self.announce.send(self, text=ann)
         
         # Check if computer should move next (but not during replay)
         if not self._in_replay and self.game.is_computer_turn() and not self.game.board_state.board.is_game_over():
@@ -313,36 +314,98 @@ class ChessController:
 
     def _format_move_announcement(self, move: chess.Move) -> str:
         """
-        Builds either a brief ("e2 e4") or verbose
-        ("White pawn from e2 to e4 [takes]") announcement.
+        Builds comprehensive move announcement including game state changes.
+        Covers: basic moves, captures, check, checkmate, castling, en passant, promotion, etc.
         """
+        board = self.game.board_state.board
+        old_board = self._pending_old_board
+        
+        if self.announce_mode == "brief":
+            return self._format_brief_announcement(move, board, old_board)
+        else:
+            return self._format_verbose_announcement(move, board, old_board)
+    
+    def _format_brief_announcement(self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]) -> str:
+        """Format brief move announcement: 'e2 e4, check'"""
+        src_name = chess.square_name(move.from_square)
+        dst_name = chess.square_name(move.to_square)
+        announcement = f"{src_name} {dst_name}"
+        
+        # Add game state suffixes
+        if board.is_checkmate():
+            announcement += ", checkmate"
+        elif board.is_check():
+            announcement += ", check"
+        elif board.is_stalemate():
+            announcement += ", stalemate"
+        
+        return announcement
+    
+    def _format_verbose_announcement(self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]) -> str:
+        """Format verbose move announcement with full details."""
         src, dst = move.from_square, move.to_square
         fname_src = chess.square_name(src)
         fname_dst = chess.square_name(dst)
-        # determine piece name
-        # after move, b.piece_at(dst) is the moved piece:
-        bnew = self.game.board_state.board
-        p = bnew.piece_at(dst)
-        name = PIECE_NAMES[p.piece_type] if p else "piece"
-        color = "White" if p.color else "Black"
-
-        # detect captures if we have old board stashed
-        captured_piece_info = ""
-        if self._pending_old_board and self._pending_old_board.is_capture(move):
-            # Get the captured piece from the old board
-            captured_piece = self._pending_old_board.piece_at(dst)
+        
+        # Get piece that moved
+        piece = board.piece_at(dst)
+        if not piece:
+            return f"Unknown move {fname_src} to {fname_dst}"
+            
+        piece_name = PIECE_NAMES[piece.piece_type]
+        color = "White" if piece.color else "Black"
+        
+        # Build base announcement
+        announcement_parts = []
+        
+        # Special move types
+        if old_board and old_board.is_castling(move):
+            if move.to_square > move.from_square:  # Kingside
+                announcement_parts.append(f"{color} castles kingside")
+            else:  # Queenside
+                announcement_parts.append(f"{color} castles queenside")
+        elif old_board and old_board.is_en_passant(move):
+            announcement_parts.append(f"{color} pawn takes en passant at {fname_dst}")
+        elif move.promotion:
+            promoted_piece = PIECE_NAMES[move.promotion]
+            if old_board and old_board.is_capture(move):
+                captured_piece = old_board.piece_at(dst)
+                if captured_piece:
+                    captured_name = PIECE_NAMES[captured_piece.piece_type]
+                    announcement_parts.append(f"{color} pawn takes {captured_name}, promotes to {promoted_piece}")
+                else:
+                    announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
+            else:
+                announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
+        elif old_board and old_board.is_capture(move):
+            # Regular capture
+            captured_piece = old_board.piece_at(dst)
             if captured_piece:
                 captured_name = PIECE_NAMES[captured_piece.piece_type]
-                captured_piece_info = f" takes {captured_name} at {fname_dst}"
-
-        # verbose vs brief
-        if self.announce_mode == "brief":
-            return f"{fname_src} {fname_dst}"
-        else:
-            if captured_piece_info:
-                return f"{color} {name}{captured_piece_info}"
+                announcement_parts.append(f"{color} {piece_name} takes {captured_name} at {fname_dst}")
             else:
-                return f"{color} {name} from {fname_src} to {fname_dst}"
+                announcement_parts.append(f"{color} {piece_name} takes at {fname_dst}")
+        else:
+            # Regular move
+            announcement_parts.append(f"{color} {piece_name} from {fname_src} to {fname_dst}")
+        
+        # Add game state information
+        if board.is_checkmate():
+            winner = "White" if board.turn == chess.BLACK else "Black"
+            announcement_parts.append(f"Checkmate, {winner} wins")
+        elif board.is_check():
+            checked_color = "White" if board.turn == chess.WHITE else "Black"
+            announcement_parts.append(f"{checked_color} king in check")
+        elif board.is_stalemate():
+            announcement_parts.append("Stalemate, game drawn")
+        elif board.is_insufficient_material():
+            announcement_parts.append("Draw by insufficient material")
+        elif board.can_claim_fifty_moves():
+            announcement_parts.append("Draw available by fifty-move rule")
+        elif board.can_claim_threefold_repetition():
+            announcement_parts.append("Draw available by threefold repetition")
+        
+        return ". ".join(announcement_parts)
 
     # —— Computer move handling —— #
 
