@@ -9,7 +9,7 @@ from ..models.game import Game
 from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
-from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog, show_computer_vs_computer_dialog
+from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog, show_computer_vs_computer_dialog, show_move_list_dialog
 
 logger = get_logger(__name__)
 
@@ -274,6 +274,12 @@ class ChessFrame(wx.Frame):
         # toggle announce
         elif key == ord("T") and ctrl:
             self.controller.toggle_announce_mode()
+        # move list
+        elif key == ord("L") and ctrl:
+            self.on_show_move_list()
+        # announce last move
+        elif key == ord("]"):
+            self.controller.announce_last_move()
         else:
             # skip unhandled
             event.Skip()
@@ -294,14 +300,12 @@ class ChessFrame(wx.Frame):
             move_text = self._format_move_for_speech(move)
             hint_message = f"Hint: {move_text}"
             
-            # Announce the hint
-            self.speech.speak(hint_message)
-            self.status.SetStatusText(hint_message)
+            # Announce the hint using the controller's announce system
+            self.controller.announce.send(self.controller, text=hint_message)
         else:
             # No move available (shouldn't happen, but handle gracefully)
             no_hint_message = "No hint available"
-            self.speech.speak(no_hint_message)
-            self.status.SetStatusText(no_hint_message)
+            self.controller.announce.send(self.controller, text=no_hint_message)
 
     def _format_move_for_speech(self, move):
         """Format a chess move for speech output."""
@@ -416,7 +420,7 @@ class ChessFrame(wx.Frame):
         """Handle Game > New Game: Human vs Human menu selection."""
         config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN, human_color=chess.WHITE)
         self.controller.game.new_game(config)
-        self.speech.speak("New human vs human game started")
+        self.controller.announce.send(self.controller, text="New human vs human game started")
 
     def on_new_human_vs_computer(self, event):
         """Handle Game > New Game: Human vs Computer menu selection."""
@@ -442,7 +446,7 @@ class ChessFrame(wx.Frame):
             color_name = "White" if human_color == chess.WHITE else "Black"
             difficulty_name = difficulty.value.title()
             message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
-            self.speech.speak(message)
+            self.controller.announce.send(self.controller, text=message)
             
             # If computer plays white, start its move
             if self.controller.game.is_computer_turn():
@@ -467,7 +471,7 @@ class ChessFrame(wx.Frame):
                 black_difficulty=black_difficulty
             )
             self.controller.game.new_game(config)
-            self.speech.speak(f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}")
+            self.controller.announce.send(self.controller, text=f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}")
             
             # Start the first computer move if it's white's turn
             if self.controller.game.is_computer_turn():
@@ -481,6 +485,69 @@ class ChessFrame(wx.Frame):
         """Handle computer thinking status changes."""
         # No longer show thinking message - just handle the signal
         pass
+
+    def on_show_move_list(self):
+        """Show the move list dialog (Ctrl+L)."""
+        # Get current move list from board state
+        move_list = list(self.controller.game.board_state.board.move_stack)
+        
+        if not move_list:
+            # Use controller's announce system instead of direct speech
+            self.controller.announce.send(self.controller, text="No moves in current game")
+            return
+        
+        # Calculate current position (number of moves played)
+        current_position = len(move_list) - 1
+        
+        # Show dialog
+        selected_position = show_move_list_dialog(self, move_list, current_position)
+        
+        if selected_position is not None:
+            # Navigate to the selected position
+            self._navigate_to_position(selected_position, move_list)
+
+    def _navigate_to_position(self, target_position: int, move_list):
+        """Navigate to a specific position in the game."""
+        current_position = len(self.controller.game.board_state.board.move_stack) - 1
+        
+        if target_position == current_position:
+            self.controller.announce.send(self.controller, text="Already at selected position")
+            return
+        
+        # Calculate how many moves to undo or redo
+        if target_position < current_position:
+            # Need to undo moves
+            moves_to_undo = current_position - target_position
+            for _ in range(moves_to_undo):
+                try:
+                    self.controller.undo()
+                except IndexError:
+                    break
+            
+            if target_position < 0:
+                self.controller.announce.send(self.controller, text="Navigated to starting position")
+            else:
+                self.controller.announce.send(self.controller, text=f"Navigated to position after move {target_position + 1}")
+        
+        elif target_position > current_position:
+            # Need to replay moves
+            board = self.controller.game.board_state.board
+            moves_to_replay = target_position - current_position
+            
+            for i in range(moves_to_replay):
+                move_index = current_position + 1 + i
+                if move_index < len(move_list):
+                    move = move_list[move_index]
+                    try:
+                        board.push(move)
+                        # Emit the move signal manually to update the view
+                        self.controller.game.board_state.move_made.send(
+                            self.controller.game.board_state, move=move
+                        )
+                    except (ValueError, IndexError):
+                        break
+            
+            self.controller.announce.send(self.controller, text=f"Navigated to position after move {target_position + 1}")
 
 
 def main():

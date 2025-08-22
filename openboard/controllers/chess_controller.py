@@ -271,6 +271,42 @@ class ChessController:
         self.announce_mode = "brief" if self.announce_mode == "verbose" else "verbose"
         self.announce.send(self, text=f"Announce mode: {self.announce_mode}")
 
+    def announce_last_move(self):
+        """
+        Announce the last move that was played. Bound to ] key.
+        """
+        move_stack = self.game.board_state.board.move_stack
+        
+        if not move_stack:
+            self.announce.send(self, text="No moves have been played yet")
+            return
+        
+        # Get the last move
+        last_move = move_stack[-1]
+        
+        # We need to reconstruct the board state before the last move to get proper context
+        # Create a temporary board and replay all moves except the last one
+        temp_board = chess.Board()
+        
+        # Replay all moves except the last to get the "before" state
+        for move in move_stack[:-1]:
+            temp_board.push(move)
+        
+        # Now format the announcement with the proper context
+        self._pending_old_board = temp_board.copy()
+        
+        # Apply the last move to get the "after" state
+        temp_board.push(last_move)
+        
+        # Format the announcement
+        announcement = self._format_move_announcement(last_move)
+        
+        # Clear the temporary old board
+        self._pending_old_board = None
+        
+        # Announce with "Last move:" prefix
+        self.announce.send(self, text=f"Last move: {announcement}")
+
     # —— Internal helpers —— #
 
     def _do_move(self, src: int, dst: int):

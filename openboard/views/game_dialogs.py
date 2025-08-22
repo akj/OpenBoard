@@ -2,7 +2,7 @@
 
 import wx
 import chess
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from ..models.game_mode import DifficultyLevel, DIFFICULTY_CONFIGS
 
@@ -278,3 +278,253 @@ def show_difficulty_info_dialog(parent):
     """Show the difficulty information dialog."""
     with DifficultyInfoDialog(parent) as dialog:
         dialog.ShowModal()
+
+
+class MoveListDialog(wx.Dialog):
+    """Dialog showing the complete list of game moves for navigation."""
+    
+    def __init__(self, parent, move_list: List[chess.Move], current_position: int = -1):
+        super().__init__(parent, title="Move List", 
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+                        size=(400, 500))
+        
+        self.move_list = move_list
+        self.current_position = current_position if current_position >= 0 else len(move_list) - 1
+        self.selected_position = self.current_position
+        
+        self._create_controls()
+        self._layout_controls()
+        self._bind_events()
+        self._populate_moves()
+        
+        # Set initial selection and focus
+        if self.move_list:
+            self.list_ctrl.SetFocus()
+            self._update_selection()
+
+    def _create_controls(self):
+        """Create dialog controls."""
+        # Header label
+        self.header_label = wx.StaticText(self, label="Game Moves:")
+        
+        # Move list control
+        self.list_ctrl = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES)
+        
+        # Add columns
+        self.list_ctrl.AppendColumn("Move #", width=60)
+        self.list_ctrl.AppendColumn("White", width=80)
+        self.list_ctrl.AppendColumn("Black", width=80)
+        self.list_ctrl.AppendColumn("Position", width=150)
+        
+        # Status label
+        self.status_label = wx.StaticText(self, label="")
+        
+        # Navigation buttons
+        self.goto_start_btn = wx.Button(self, label="Start")
+        self.goto_prev_btn = wx.Button(self, label="Previous")
+        self.goto_next_btn = wx.Button(self, label="Next")
+        self.goto_end_btn = wx.Button(self, label="End")
+        
+        # Action buttons
+        self.goto_position_btn = wx.Button(self, label="Go to Position")
+        self.close_btn = wx.Button(self, wx.ID_CLOSE, "Close")
+        
+        # Make close button default
+        self.close_btn.SetDefault()
+
+    def _layout_controls(self):
+        """Layout dialog controls."""
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Header
+        main_sizer.Add(self.header_label, 0, wx.ALL, 5)
+        
+        # Move list
+        main_sizer.Add(self.list_ctrl, 1, wx.EXPAND | wx.ALL, 5)
+        
+        # Status
+        main_sizer.Add(self.status_label, 0, wx.ALL, 5)
+        
+        # Navigation buttons
+        nav_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        nav_sizer.Add(self.goto_start_btn, 0, wx.ALL, 5)
+        nav_sizer.Add(self.goto_prev_btn, 0, wx.ALL, 5)
+        nav_sizer.Add(self.goto_next_btn, 0, wx.ALL, 5)
+        nav_sizer.Add(self.goto_end_btn, 0, wx.ALL, 5)
+        main_sizer.Add(nav_sizer, 0, wx.CENTER)
+        
+        # Action buttons
+        action_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        action_sizer.Add(self.goto_position_btn, 0, wx.ALL, 5)
+        action_sizer.AddStretchSpacer()
+        action_sizer.Add(self.close_btn, 0, wx.ALL, 5)
+        main_sizer.Add(action_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
+        self.SetSizer(main_sizer)
+
+    def _bind_events(self):
+        """Bind dialog events."""
+        # List selection
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_move_selected, self.list_ctrl)
+        
+        # Navigation buttons
+        self.Bind(wx.EVT_BUTTON, self._on_goto_start, self.goto_start_btn)
+        self.Bind(wx.EVT_BUTTON, self._on_goto_prev, self.goto_prev_btn)
+        self.Bind(wx.EVT_BUTTON, self._on_goto_next, self.goto_next_btn)
+        self.Bind(wx.EVT_BUTTON, self._on_goto_end, self.goto_end_btn)
+        
+        # Action buttons
+        self.Bind(wx.EVT_BUTTON, self._on_goto_position, self.goto_position_btn)
+        
+        # Keyboard navigation
+        self.list_ctrl.Bind(wx.EVT_CHAR_HOOK, self._on_list_key)
+
+    def _populate_moves(self):
+        """Populate the move list control."""
+        if not self.move_list:
+            self.status_label.SetLabel("No moves in current game")
+            return
+        
+        # Clear existing items
+        self.list_ctrl.DeleteAllItems()
+        
+        # Add moves in pairs (White/Black)
+        for i in range(0, len(self.move_list), 2):
+            move_num = (i // 2) + 1
+            white_move = str(self.move_list[i])
+            black_move = str(self.move_list[i + 1]) if i + 1 < len(self.move_list) else ""
+            
+            # Create position description
+            if i + 1 < len(self.move_list):
+                position = f"After {move_num}...{black_move}"
+            else:
+                position = f"After {move_num}.{white_move}"
+            
+            # Add to list
+            index = self.list_ctrl.InsertItem(move_num - 1, str(move_num))
+            self.list_ctrl.SetItem(index, 1, white_move)
+            self.list_ctrl.SetItem(index, 2, black_move)
+            self.list_ctrl.SetItem(index, 3, position)
+        
+        self._update_status()
+
+    def _update_selection(self):
+        """Update the list selection based on current position."""
+        if not self.move_list:
+            return
+            
+        # Calculate which row contains the current position
+        if self.selected_position < 0:
+            # Before first move
+            self.list_ctrl.SetItemState(-1, 0, wx.LIST_STATE_SELECTED)
+        else:
+            row = self.selected_position // 2
+            if row < self.list_ctrl.GetItemCount():
+                self.list_ctrl.SetItemState(row, wx.LIST_STATE_SELECTED, wx.LIST_STATE_SELECTED)
+                self.list_ctrl.EnsureVisible(row)
+
+    def _update_status(self):
+        """Update the status label."""
+        if not self.move_list:
+            self.status_label.SetLabel("No moves in current game")
+            return
+        
+        total_moves = len(self.move_list)
+        if self.selected_position < 0:
+            self.status_label.SetLabel(f"Starting position (0 of {total_moves} moves)")
+        else:
+            self.status_label.SetLabel(f"Position after move {self.selected_position + 1} of {total_moves}")
+        
+        # Update button states
+        self.goto_start_btn.Enable(self.selected_position >= 0)
+        self.goto_prev_btn.Enable(self.selected_position >= 0)
+        self.goto_next_btn.Enable(self.selected_position < len(self.move_list) - 1)
+        self.goto_end_btn.Enable(self.selected_position < len(self.move_list) - 1)
+
+    def _on_move_selected(self, event):
+        """Handle move selection in the list."""
+        selection = event.GetIndex()
+        if selection >= 0:
+            # Convert row selection to move position
+            # Each row represents a move pair, so we need to determine if we're selecting white or black
+            row = selection
+            white_move_pos = row * 2
+            black_move_pos = row * 2 + 1
+            
+            # For now, select the black move if it exists, otherwise white
+            if black_move_pos < len(self.move_list):
+                self.selected_position = black_move_pos
+            else:
+                self.selected_position = white_move_pos
+        
+        self._update_status()
+
+    def _on_goto_start(self, event):
+        """Go to start position."""
+        self.selected_position = -1
+        self._update_selection()
+        self._update_status()
+
+    def _on_goto_prev(self, event):
+        """Go to previous move."""
+        if self.selected_position >= 0:
+            self.selected_position -= 1
+            self._update_selection()
+            self._update_status()
+
+    def _on_goto_next(self, event):
+        """Go to next move."""
+        if self.selected_position < len(self.move_list) - 1:
+            self.selected_position += 1
+            self._update_selection()
+            self._update_status()
+
+    def _on_goto_end(self, event):
+        """Go to end position."""
+        if self.move_list:
+            self.selected_position = len(self.move_list) - 1
+            self._update_selection()
+            self._update_status()
+
+    def _on_goto_position(self, event):
+        """Apply the selected position to the game."""
+        # This will be handled by the parent dialog
+        self.EndModal(wx.ID_OK)
+
+    def _on_list_key(self, event):
+        """Handle keyboard navigation in the list."""
+        key = event.GetKeyCode()
+        
+        if key == wx.WXK_RETURN or key == wx.WXK_SPACE:
+            # Apply position
+            self._on_goto_position(event)
+        elif key == wx.WXK_HOME:
+            self._on_goto_start(event)
+        elif key == wx.WXK_END:
+            self._on_goto_end(event)
+        elif key == wx.WXK_ESCAPE:
+            self.EndModal(wx.ID_CANCEL)
+        else:
+            event.Skip()
+
+    def get_selected_position(self) -> int:
+        """Get the selected move position."""
+        return self.selected_position
+
+
+def show_move_list_dialog(parent, move_list: List[chess.Move], current_position: int = -1) -> Optional[int]:
+    """
+    Show the move list dialog and return the selected position.
+    
+    Args:
+        parent: Parent window
+        move_list: List of chess moves
+        current_position: Current position in the move list
+        
+    Returns:
+        Selected position if OK was clicked, None if cancelled.
+    """
+    with MoveListDialog(parent, move_list, current_position) as dialog:
+        if dialog.ShowModal() == wx.ID_OK:
+            return dialog.get_selected_position()
+    return None
