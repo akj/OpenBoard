@@ -10,11 +10,12 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import chess
 import chess.engine
 from concurrent.futures import Future
+from typing import List
 
 from openboard.engine.engine_adapter import EngineAdapter
 
 
-def test_adapter_initialization():
+def test_adapter_initialization() -> None:
     """Test basic adapter initialization."""
     adapter = EngineAdapter(engine_path="/fake/path")
     assert adapter.engine_path == "/fake/path"
@@ -24,7 +25,7 @@ def test_adapter_initialization():
     assert adapter._shutdown_event is not None
     
 
-def test_adapter_thread_safety_attributes():
+def test_adapter_thread_safety_attributes() -> None:
     """Test that thread safety attributes are properly initialized."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -68,7 +69,7 @@ def test_adapter_start_creates_thread(mock_popen_uci):
         adapter.stop()
 
 
-def test_adapter_multiple_stops_safe():
+def test_adapter_multiple_stops_safe() -> None:
     """Test that multiple stop() calls are safe."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -80,12 +81,12 @@ def test_adapter_multiple_stops_safe():
     assert not adapter.is_running()
 
 
-def test_adapter_state_lock_prevents_races():
+def test_adapter_state_lock_prevents_races() -> None:
     """Test that state lock prevents race conditions."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
-    results = []
-    errors = []
+    results: List[bool] = []
+    errors: List[Exception] = []
     
     def worker():
         try:
@@ -109,7 +110,7 @@ def test_adapter_state_lock_prevents_races():
     assert all(result is False for result in results)  # All should be False since not started
 
 
-def test_adapter_weakset_cleanup():
+def test_adapter_weakset_cleanup() -> None:
     """Test that WeakSet properly manages future references."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -135,7 +136,7 @@ def test_adapter_weakset_cleanup():
 
 
 @patch('chess.engine.popen_uci')
-def test_adapter_get_best_move_requires_running_engine(mock_popen_uci):
+def test_adapter_get_best_move_requires_running_engine(mock_popen_uci: MagicMock) -> None:
     """Test that get_best_move requires engine to be running."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -145,7 +146,7 @@ def test_adapter_get_best_move_requires_running_engine(mock_popen_uci):
 
 
 @patch('chess.engine.popen_uci') 
-def test_adapter_get_best_move_async_requires_running_engine(mock_popen_uci):
+def test_adapter_get_best_move_async_requires_running_engine(mock_popen_uci: MagicMock) -> None:
     """Test that get_best_move_async requires engine to be running."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -154,7 +155,7 @@ def test_adapter_get_best_move_async_requires_running_engine(mock_popen_uci):
         adapter.get_best_move_async("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
 
 
-def test_adapter_context_manager_interface():
+def test_adapter_context_manager_interface() -> None:
     """Test that adapter supports context manager interface."""
     adapter = EngineAdapter(engine_path="/fake/path")
     
@@ -165,7 +166,7 @@ def test_adapter_context_manager_interface():
     assert callable(adapter.__exit__)
 
 
-def test_timeout_calculation():
+def test_timeout_calculation() -> None:
     """Test adaptive timeout calculation logic."""
     # Test the mathematical logic used in get_best_move timeout calculation
     
@@ -190,7 +191,7 @@ def test_timeout_calculation():
     assert total_timeout == 45.0
 
 
-def test_wx_import_handling():
+def test_wx_import_handling() -> None:
     """Test that wx import works correctly."""
     # wx is a required dependency, so import should always succeed
     import wx
@@ -202,7 +203,7 @@ def test_wx_import_handling():
     assert callable(wx.GetApp)
 
 
-def test_error_message_formatting():
+def test_error_message_formatting() -> None:
     """Test that error messages are properly formatted."""
     # Test various error scenarios would format messages correctly
     assert "Engine is not running" in "Engine is not running; call start() first."
@@ -210,7 +211,7 @@ def test_error_message_formatting():
     assert "startup failed" in "Engine startup failed: test error"
 
 
-def test_create_with_auto_detection_class_method():
+def test_create_with_auto_detection_class_method() -> None:
     """Test the create_with_auto_detection class method."""
     with patch('openboard.engine.engine_adapter.EngineDetector') as mock_detector_class:
         mock_detector = MagicMock()
@@ -224,7 +225,7 @@ def test_create_with_auto_detection_class_method():
         mock_detector.find_engine.assert_called_once_with("stockfish")
 
 
-def test_board_copy_safety():
+def test_board_copy_safety() -> None:
     """Test that chess.Board inputs are copied for thread safety."""
     adapter = EngineAdapter(engine_path="/fake/path")
     

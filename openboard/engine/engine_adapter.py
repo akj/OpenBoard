@@ -10,7 +10,41 @@ import chess.engine
 
 from .engine_detection import EngineDetector
 
-import wx
+
+class CallbackExecutor:
+    """Base callback executor for handling async callback execution."""
+    
+    def execute(self, callback, *args, **kwargs):
+        """Execute callback directly."""
+        if callback:
+            callback(*args, **kwargs)
+
+
+class WxCallbackExecutor(CallbackExecutor):
+    """Wx-aware callback executor that uses CallAfter for thread safety."""
+    
+    def execute(self, callback, *args, **kwargs):
+        """Execute callback using wx.CallAfter if not on main thread."""
+        if not callback:
+            return
+            
+        if threading.current_thread() != threading.main_thread():
+            try:
+                if HAS_WX and hasattr(wx, 'GetApp') and wx.GetApp() is not None:
+                    wx.CallAfter(callback, *args, **kwargs)
+                    return
+            except (RuntimeError, AttributeError):
+                # Fallback if wx is shutting down or not properly initialized
+                pass
+        
+        # Direct execution if on main thread or wx unavailable
+        callback(*args, **kwargs)
+
+try:
+    import wx
+    HAS_WX = True
+except ImportError:
+    HAS_WX = False
 
 
 class EngineAdapter:
@@ -32,6 +66,7 @@ class EngineAdapter:
         self,
         engine_path: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
+        callback_executor: Optional[CallbackExecutor] = None,
     ):
         """
         :param engine_path: path to the UCI engine executable. If None, will auto-detect.
@@ -63,6 +98,13 @@ class EngineAdapter:
         self._loop_ready_event = threading.Event()
         self._shutdown_event = threading.Event()
         self._active_futures = weakref.WeakSet()
+        
+        # Callback execution strategy
+        if callback_executor is None:
+            # Auto-detect best callback executor
+            self._callback_executor = WxCallbackExecutor() if HAS_WX else CallbackExecutor()
+        else:
+            self._callback_executor = callback_executor
 
     def start(self) -> None:
         """
@@ -168,6 +210,8 @@ class EngineAdapter:
         try:
             self._logger.info(f"Starting engine: {self.engine_path}")
             
+            # Signal startup completion when done
+            
             # Start engine with timeout
             try:
                 self._transport, self._engine = await asyncio.wait_for(
@@ -198,9 +242,14 @@ class EngineAdapter:
             raise RuntimeError(f"Permission denied executing engine: {self.engine_path}")
         except chess.engine.EngineTerminatedError as e:
             raise RuntimeError(f"Engine terminated during startup: {e}")
+            
         except Exception as e:
             self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")
             raise RuntimeError(f"Engine startup failed: {e}") from e
+        finally:
+            # Signal startup completion (success or failure)
+            if self._startup_complete:
+                self._startup_complete.set()
 
     def stop(self) -> None:
         """
@@ -331,34 +380,13 @@ class EngineAdapter:
         self, position: Union[str, chess.Board], time_ms: int, depth: Optional[int]
     ) -> chess.Move | None:
         """Async implementation of get_best_move with enhanced error handling."""
-        if isinstance(position, chess.Board):
-            board = position.copy()  # Work with a copy to avoid mutations
-        elif isinstance(position, str):
-            try:
-                board = chess.Board(position)
-            except ValueError as e:
-                raise ValueError(f"Invalid FEN string '{position[:50]}...': {e}") from e
-            except Exception as e:
-                raise ValueError(f"Failed to parse position: {e}") from e
-        else:
-            raise TypeError(f"position must be a FEN string or chess.Board, got {type(position)}")
-
-        # Validate board state
+        board = self._validate_board_state(position)
+        
+        # Return None for game-over positions
         if board.is_game_over():
-            self._logger.warning("Requested best move for a game-over position")
             return None
-
-        # Create search limit with validation
-        if depth is not None and depth > 0:
-            limit = chess.engine.Limit(depth=depth)
-            self._logger.debug(f"Engine search with depth limit: {depth}")
-        elif time_ms > 0:
-            time_seconds = max(time_ms / 1000.0, 0.001)  # Minimum 1ms
-            limit = chess.engine.Limit(time=time_seconds)
-            self._logger.debug(f"Engine search with time limit: {time_seconds}s")
-        else:
-            limit = chess.engine.Limit(time=1.0)  # fallback
-            self._logger.warning("Using fallback 1 second time limit")
+            
+        limit = self._create_engine_limit(time_ms, depth)
 
         try:
             # Check if engine is still available
@@ -423,30 +451,15 @@ class EngineAdapter:
 
         def safe_callback(f):
             """Wrapper to safely handle callback exceptions and cleanup."""
-            def execute_callback():
-                try:
-                    if callback:
-                        if f.exception():
-                            callback(f.exception())
-                        else:
-                            callback(f.result())
-                except Exception as e:
-                    self._logger.error(f"Callback error in get_best_move_async: {e}")
-                finally:
-                    self._active_futures.discard(f)
-            
-            # Use wx.CallAfter for thread-safe GUI callbacks when not on main thread
-            if threading.current_thread() != threading.main_thread():
-                try:
-                    if hasattr(wx, 'GetApp') and wx.GetApp() is not None:
-                        wx.CallAfter(execute_callback)
-                        return
-                except (RuntimeError, AttributeError):
-                    # Fallback if wx is shutting down or not properly initialized
-                    pass
-            
-            # Direct execution if on main thread or wx unavailable
-            execute_callback()
+            try:
+                if f.exception():
+                    self._callback_executor.execute(callback, f.exception())
+                else:
+                    self._callback_executor.execute(callback, f.result())
+            except Exception as e:
+                self._logger.error(f"Callback error in get_best_move_async: {e}")
+            finally:
+                self._active_futures.discard(f)
 
         if callback:
             future.add_done_callback(safe_callback)
@@ -479,6 +492,7 @@ class EngineAdapter:
         engine_path = detector.find_engine(engine_name)
 
         if engine_path is None:
+            # Use a static version since this is a class method
             instructions = detector.get_installation_instructions(engine_name)
             system = detector.system
             instruction_text = instructions.get(system, instructions.get("generic", ""))
@@ -487,3 +501,28 @@ class EngineAdapter:
             )
 
         return cls(engine_path, options)
+    
+    async def _ping_engine(self) -> bool:
+        """Check if engine is responsive."""
+        if not self._engine:
+            return False
+            
+        try:
+            # Send a quick position analysis as a health check
+            board = chess.Board()  # Starting position
+            limit = chess.engine.Limit(time=0.001)  # Very short time limit
+            await asyncio.wait_for(self._engine.analyse(board, limit), timeout=1.0)
+            return True
+        except Exception:
+            return False
+            
+    def is_healthy(self) -> bool:
+        """Check if engine is running and responsive."""
+        if not self.is_running():
+            return False
+        
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._ping_engine(), self._loop)
+            return future.result(timeout=2.0)
+        except Exception:
+            return False
