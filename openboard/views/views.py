@@ -536,14 +536,31 @@ class ChessFrame(wx.Frame):
             )
             return
 
+        # Check if game is ongoing (not finished) and not in replay mode
+        board = self.controller.game.board_state.board
+        is_in_replay = self.controller._in_replay
+        game_is_ongoing = not board.is_game_over() and not is_in_replay
+
         # Calculate current position (number of moves played)
         current_position = len(move_list) - 1
 
-        # Show dialog
-        selected_position = show_move_list_dialog(self, move_list, current_position)
+        # Show dialog with navigation disabled only for ongoing non-replay games
+        selected_position = show_move_list_dialog(
+            self,
+            move_list,
+            current_position,
+            allow_navigation=not game_is_ongoing,
+            is_ongoing_game=game_is_ongoing,
+        )
 
-        if selected_position is not None:
-            # Navigate to the selected position
+        # Only navigate if game is finished or in replay mode and user selected a position
+        if selected_position is not None and game_is_ongoing:
+            self.controller.announce.send(
+                self.controller,
+                text="Cannot navigate to different positions during an ongoing game",
+            )
+        elif selected_position is not None:
+            # Navigate to the selected position (game is finished or in replay mode)
             self._navigate_to_position(selected_position, move_list)
 
     def _navigate_to_position(self, target_position: int, move_list):

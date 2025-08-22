@@ -299,7 +299,14 @@ def show_difficulty_info_dialog(parent):
 class MoveListDialog(wx.Dialog):
     """Dialog showing the complete list of game moves for navigation."""
 
-    def __init__(self, parent, move_list: List[chess.Move], current_position: int = -1):
+    def __init__(
+        self,
+        parent,
+        move_list: List[chess.Move],
+        current_position: int = -1,
+        allow_navigation: bool = True,
+        is_ongoing_game: bool = False,
+    ):
         super().__init__(
             parent,
             title="Move List",
@@ -312,6 +319,8 @@ class MoveListDialog(wx.Dialog):
             current_position if current_position >= 0 else len(move_list) - 1
         )
         self.selected_position = self.current_position
+        self.allow_navigation = allow_navigation
+        self.is_ongoing_game = is_ongoing_game
 
         self._create_controls()
         self._layout_controls()
@@ -326,7 +335,14 @@ class MoveListDialog(wx.Dialog):
     def _create_controls(self):
         """Create dialog controls."""
         # Header label
-        self.header_label = wx.StaticText(self, label="Game Moves:")
+        if self.allow_navigation:
+            header_text = "Game Moves:"
+        else:
+            if self.is_ongoing_game:
+                header_text = "Game Moves (Read-only - active game in progress):"
+            else:
+                header_text = "Game Moves (Read-only):"
+        self.header_label = wx.StaticText(self, label=header_text)
 
         # Move list control
         self.list_ctrl = wx.ListCtrl(
@@ -335,9 +351,9 @@ class MoveListDialog(wx.Dialog):
 
         # Add columns
         self.list_ctrl.AppendColumn("Move #", width=60)
-        self.list_ctrl.AppendColumn("White", width=80)
-        self.list_ctrl.AppendColumn("Black", width=80)
-        self.list_ctrl.AppendColumn("Position", width=150)
+        self.list_ctrl.AppendColumn("Color", width=60)
+        self.list_ctrl.AppendColumn("Move", width=80)
+        self.list_ctrl.AppendColumn("Position", width=180)
 
         # Status label
         self.status_label = wx.StaticText(self, label="")
@@ -351,6 +367,14 @@ class MoveListDialog(wx.Dialog):
         # Action buttons
         self.goto_position_btn = wx.Button(self, label="Go to Position")
         self.close_btn = wx.Button(self, wx.ID_CLOSE, "Close")
+
+        # Disable navigation controls if not allowed
+        if not self.allow_navigation:
+            self.goto_start_btn.Enable(False)
+            self.goto_prev_btn.Enable(False)
+            self.goto_next_btn.Enable(False)
+            self.goto_end_btn.Enable(False)
+            self.goto_position_btn.Enable(False)
 
         # Make close button default
         self.close_btn.SetDefault()
@@ -411,24 +435,23 @@ class MoveListDialog(wx.Dialog):
         # Clear existing items
         self.list_ctrl.DeleteAllItems()
 
-        # Add moves in pairs (White/Black)
-        for i in range(0, len(self.move_list), 2):
+        # Add each half-move as a separate row
+        for i, move in enumerate(self.move_list):
             move_num = (i // 2) + 1
-            white_move = str(self.move_list[i])
-            black_move = (
-                str(self.move_list[i + 1]) if i + 1 < len(self.move_list) else ""
-            )
+            is_white = i % 2 == 0
+            color = "White" if is_white else "Black"
+            move_str = str(move)
 
             # Create position description
-            if i + 1 < len(self.move_list):
-                position = f"After {move_num}...{black_move}"
+            if is_white:
+                position = f"After {move_num}.{move_str}"
             else:
-                position = f"After {move_num}.{white_move}"
+                position = f"After {move_num}...{move_str}"
 
             # Add to list
-            index = self.list_ctrl.InsertItem(move_num - 1, str(move_num))
-            self.list_ctrl.SetItem(index, 1, white_move)
-            self.list_ctrl.SetItem(index, 2, black_move)
+            index = self.list_ctrl.InsertItem(i, str(move_num))
+            self.list_ctrl.SetItem(index, 1, color)
+            self.list_ctrl.SetItem(index, 2, move_str)
             self.list_ctrl.SetItem(index, 3, position)
 
         self._update_status()
@@ -438,12 +461,13 @@ class MoveListDialog(wx.Dialog):
         if not self.move_list:
             return
 
-        # Calculate which row contains the current position
+        # Each move has its own row now
         if self.selected_position < 0:
-            # Before first move
+            # Before first move - clear selection
             self.list_ctrl.SetItemState(-1, 0, wx.LIST_STATE_SELECTED)
         else:
-            row = self.selected_position // 2
+            # Select the row corresponding to the move position
+            row = self.selected_position
             if row < self.list_ctrl.GetItemCount():
                 self.list_ctrl.SetItemState(
                     row, wx.LIST_STATE_SELECTED, wx.LIST_STATE_SELECTED
@@ -464,27 +488,25 @@ class MoveListDialog(wx.Dialog):
                 f"Position after move {self.selected_position + 1} of {total_moves}"
             )
 
-        # Update button states
-        self.goto_start_btn.Enable(self.selected_position >= 0)
-        self.goto_prev_btn.Enable(self.selected_position >= 0)
-        self.goto_next_btn.Enable(self.selected_position < len(self.move_list) - 1)
-        self.goto_end_btn.Enable(self.selected_position < len(self.move_list) - 1)
+        # Update button states (only if navigation is allowed)
+        if self.allow_navigation:
+            self.goto_start_btn.Enable(self.selected_position >= 0)
+            self.goto_prev_btn.Enable(self.selected_position >= 0)
+            self.goto_next_btn.Enable(self.selected_position < len(self.move_list) - 1)
+            self.goto_end_btn.Enable(self.selected_position < len(self.move_list) - 1)
+        else:
+            # Keep all navigation buttons disabled
+            self.goto_start_btn.Enable(False)
+            self.goto_prev_btn.Enable(False)
+            self.goto_next_btn.Enable(False)
+            self.goto_end_btn.Enable(False)
 
     def _on_move_selected(self, event):
         """Handle move selection in the list."""
         selection = event.GetIndex()
         if selection >= 0:
-            # Convert row selection to move position
-            # Each row represents a move pair, so we need to determine if we're selecting white or black
-            row = selection
-            white_move_pos = row * 2
-            black_move_pos = row * 2 + 1
-
-            # For now, select the black move if it exists, otherwise white
-            if black_move_pos < len(self.move_list):
-                self.selected_position = black_move_pos
-            else:
-                self.selected_position = white_move_pos
+            # Each row now directly corresponds to a move position
+            self.selected_position = selection
 
         self._update_status()
 
@@ -517,6 +539,8 @@ class MoveListDialog(wx.Dialog):
 
     def _on_goto_position(self, event):
         """Apply the selected position to the game."""
+        if not self.allow_navigation:
+            return  # Do nothing if navigation is disabled
         # This will be handled by the parent dialog
         self.EndModal(wx.ID_OK)
 
@@ -525,12 +549,15 @@ class MoveListDialog(wx.Dialog):
         key = event.GetKeyCode()
 
         if key == wx.WXK_RETURN or key == wx.WXK_SPACE:
-            # Apply position
-            self._on_goto_position(event)
+            # Apply position only if navigation is allowed
+            if self.allow_navigation:
+                self._on_goto_position(event)
         elif key == wx.WXK_HOME:
-            self._on_goto_start(event)
+            if self.allow_navigation:
+                self._on_goto_start(event)
         elif key == wx.WXK_END:
-            self._on_goto_end(event)
+            if self.allow_navigation:
+                self._on_goto_end(event)
         elif key == wx.WXK_ESCAPE:
             self.EndModal(wx.ID_CANCEL)
         else:
@@ -542,7 +569,11 @@ class MoveListDialog(wx.Dialog):
 
 
 def show_move_list_dialog(
-    parent, move_list: List[chess.Move], current_position: int = -1
+    parent,
+    move_list: List[chess.Move],
+    current_position: int = -1,
+    allow_navigation: bool = True,
+    is_ongoing_game: bool = False,
 ) -> Optional[int]:
     """
     Show the move list dialog and return the selected position.
@@ -551,11 +582,15 @@ def show_move_list_dialog(
         parent: Parent window
         move_list: List of chess moves
         current_position: Current position in the move list
+        allow_navigation: Whether to allow navigation to different positions
+        is_ongoing_game: Whether this is an active game (for display purposes)
 
     Returns:
         Selected position if OK was clicked, None if cancelled.
     """
-    with MoveListDialog(parent, move_list, current_position) as dialog:
+    with MoveListDialog(
+        parent, move_list, current_position, allow_navigation, is_ongoing_game
+    ) as dialog:
         if dialog.ShowModal() == wx.ID_OK:
             return dialog.get_selected_position()
     return None
