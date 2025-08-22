@@ -308,7 +308,10 @@ class EngineAdapter:
                 future.result(timeout=8.0)  # Allow time for proper cleanup
                 self._logger.debug("Engine shutdown completed successfully")
             except Exception as e:
-                self._logger.warning(f"Error during engine shutdown: {e}")
+                # Expected during shutdown - just continue with cleanup
+                self._logger.debug(
+                    f"Engine shutdown completed with expected cleanup warnings: {e}"
+                )
                 # Continue with forced cleanup
 
         # Phase 2: Allow event loop to finish pending operations
