@@ -119,7 +119,7 @@ class ChessController:
         
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
-        # Move announcement is handled by _on_model_move if successful
+        # Move announcement is handled by _on_model_move when the move is applied
 
     # —— Public methods for view events —— #
 

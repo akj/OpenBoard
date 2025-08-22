@@ -238,6 +238,7 @@ def test_computer_vs_computer_is_computer_turn():
     assert game.is_computer_turn()
 
 
+
 def test_computer_vs_computer_move_white():
     """Test computer move for white in computer vs computer mode."""
     mock_engine = Mock(spec=EngineAdapter)
