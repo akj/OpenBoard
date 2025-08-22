@@ -3,7 +3,6 @@ import chess.pgn
 from io import StringIO
 from blinker import Signal
 from typing import Optional, List
-import threading
 
 from ..models.game import Game
 from ..models.game_mode import GameMode
@@ -64,7 +63,6 @@ class ChessController:
 
         # computer move handling
         self._computer_thinking: bool = False
-        self._computer_move_thread: Optional[threading.Thread] = None
 
         # hook model signals
         game.move_made.connect(self._on_model_move)
@@ -107,15 +105,21 @@ class ChessController:
         if status != "In progress":
             self.announce.send(self, text=f"Game over: {status}")
 
-    def _on_hint_ready(self, sender, move: chess.Move):
+    def _on_hint_ready(self, sender, move: chess.Move = None, error: str = None):
         """Forward engine hints to the view."""
-        self.hint_ready.send(self, move=move)
+        if error:
+            self.announce.send(self, text=f"Hint failed: {error}")
+        else:
+            self.hint_ready.send(self, move=move)
 
-    def _on_computer_move_ready(self, sender, move: chess.Move):
+    def _on_computer_move_ready(self, sender, move: chess.Move = None, error: str = None):
         """Handle computer move completion."""
         self._computer_thinking = False
         self.computer_thinking.send(self, thinking=False)
-        # Move announcement is handled by _on_model_move
+        
+        if error:
+            self.announce.send(self, text=f"Computer move failed: {error}")
+        # Move announcement is handled by _on_model_move if successful
 
     # —— Public methods for view events —— #
 
@@ -200,10 +204,10 @@ class ChessController:
 
     def request_hint(self):
         """
-        Bound to e.g. 'H'.  Fires engine hint.
+        Bound to e.g. 'H'.  Fires engine hint using async method.
         """
         try:
-            self.game.request_hint()
+            self.game.request_hint_async()
         except RuntimeError as e:
             self.announce.send(self, text=str(e))
 
@@ -343,27 +347,17 @@ class ChessController:
     # —— Computer move handling —— #
 
     def _request_computer_move_async(self):
-        """Request a computer move in a background thread."""
+        """Request a computer move using async engine."""
         if self._computer_thinking:
             return  # Already thinking
-            
-        if self._computer_move_thread and self._computer_move_thread.is_alive():
-            return  # Thread still running
             
         self._computer_thinking = True
         self.computer_thinking.send(self, thinking=True)
         
-        # Start computer move in background thread
-        self._computer_move_thread = threading.Thread(target=self._compute_computer_move)
-        self._computer_move_thread.daemon = True
-        self._computer_move_thread.start()
-
-    def _compute_computer_move(self):
-        """Compute computer move in background thread."""
         try:
-            self.game.request_computer_move()
+            self.game.request_computer_move_async()
         except Exception as e:
-            logger.error(f"Computer move computation failed: {e}")
+            logger.error(f"Failed to request computer move: {e}")
             # Signal thinking stopped even on error
             self._computer_thinking = False
             self.computer_thinking.send(self, thinking=False)

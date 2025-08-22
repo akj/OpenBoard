@@ -136,7 +136,7 @@ Difficulty levels control both thinking time and search depth:
 
 ## Engine Integration
 
-OpenBoard automatically detects and uses Stockfish engines installed on your system. The EngineAdapter class provides a synchronous interface to UCI engines and handles engine lifecycle management.
+OpenBoard automatically detects and uses Stockfish engines installed on your system. The EngineAdapter class provides a modern asyncio-based interface to UCI engines while maintaining synchronous API compatibility for the GUI. It uses async engine communication internally for better performance and resource management.
 
 ### Engine Installation
 
@@ -214,10 +214,12 @@ from .dialogs import SomeDialog
 - Game logic errors: Use `ValueError` for invalid moves/configs
 - UI errors: Show `wx.MessageBox` with user-friendly text
 
-### Threading Rules
+### Async/Threading Rules
 - Only UI operations on main thread
-- Engine calls always in background threads via `threading.Thread`
-- Use signals to communicate back to main thread
+- Engine communication uses asyncio internally with background event loop
+- Async methods available: `game.request_hint_async()`, `game.request_computer_move_async()`
+- Synchronous wrappers maintain API compatibility
+- Use signals to communicate async results back to main thread
 
 ### Test Organization
 - One test file per module: `test_game.py` for `game.py`
@@ -230,7 +232,9 @@ from .dialogs import SomeDialog
 ### Engine Performance
 - Depth limits more predictable than time limits for difficulty
 - Master level (depth=15) can take 10+ seconds on complex positions
-- Background threading prevents UI freezing but doesn't speed up engine
+- Async engine communication with proper resource management
+- Background asyncio event loop prevents UI freezing
+- Callback-based async API enables concurrent analysis
 
 ### UI Responsiveness
 - Board redraws on every move - keep `on_paint` efficient
@@ -251,7 +255,9 @@ Uses pytest with mock engine adapters for testing game logic without requiring a
 ## Important Development Notes
 
 - The MVC pattern is strictly enforced - models emit signals, controllers listen and coordinate, views display and handle user input
-- All computer move calculations happen in background threads to avoid blocking the UI
-- Engine communication is synchronous but wrapped in threading by the controller
+- Engine communication uses modern asyncio patterns internally with synchronous API wrappers
+- All computer move calculations happen asynchronously to avoid blocking the UI
 - Game state is managed entirely through the signal system - avoid direct coupling between components
 - When adding new game modes or features, ensure proper signal emission and subscription patterns
+- Prefer async methods (`request_hint_async()`, `request_computer_move_async()`) for better performance
+- The engine adapter maintains backwards compatibility while providing modern async capabilities

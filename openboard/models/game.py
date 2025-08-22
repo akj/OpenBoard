@@ -125,6 +125,28 @@ class Game:
         self.hint_ready.send(self, move=best_move)
         return best_move
 
+    def request_hint_async(self, time_ms: int = 1000) -> None:
+        """
+        Ask the engine adapter for the best move asynchronously.
+        Emits hint_ready signal when computation is complete.
+        :raises RuntimeError if no engine_adapter is set.
+        """
+        if not self.engine_adapter:
+            raise RuntimeError("No chess engine available. Please install Stockfish to get hints.")
+        
+        fen = self.board_state._board.fen()
+        
+        def on_hint_ready(result):
+            """Callback when hint computation is complete."""
+            if isinstance(result, Exception):
+                logger.error(f"Hint computation failed: {result}")
+                self.hint_ready.send(self, move=None, error=str(result))
+            else:
+                self.hint_ready.send(self, move=result)
+        
+        # Use async version with callback
+        self.engine_adapter.get_best_move_async(fen, time_ms, callback=on_hint_ready)
+
     def is_computer_turn(self) -> bool:
         """
         Check if it's the computer's turn.
@@ -178,3 +200,55 @@ class Game:
             self.computer_move_ready.send(self, move=best_move)
         
         return best_move
+
+    def request_computer_move_async(self) -> None:
+        """
+        Request a computer move asynchronously.
+        Emits computer_move_ready signal when computation is complete.
+        :raises RuntimeError if no engine_adapter is set or not in computer mode.
+        """
+        if self.config.mode not in [GameMode.HUMAN_VS_COMPUTER, GameMode.COMPUTER_VS_COMPUTER]:
+            raise RuntimeError("Not in a computer vs mode")
+        if not self.engine_adapter:
+            raise RuntimeError("No chess engine available for computer opponent")
+        
+        # Determine which difficulty to use based on whose turn it is
+        difficulty_config = None
+        if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
+            if not self.config.difficulty:
+                raise RuntimeError("No difficulty level set for computer opponent")
+            difficulty_config = get_difficulty_config(self.config.difficulty)
+        elif self.config.mode == GameMode.COMPUTER_VS_COMPUTER:
+            current_turn = self.board_state.board.turn
+            if current_turn == chess.WHITE:
+                if not self.config.white_difficulty:
+                    raise RuntimeError("No difficulty level set for white computer")
+                difficulty_config = get_difficulty_config(self.config.white_difficulty)
+            else:
+                if not self.config.black_difficulty:
+                    raise RuntimeError("No difficulty level set for black computer")
+                difficulty_config = get_difficulty_config(self.config.black_difficulty)
+        
+        if difficulty_config is None:
+            raise RuntimeError("Unable to determine difficulty configuration")
+        
+        fen = self.board_state._board.fen()
+        
+        def on_move_ready(result):
+            """Callback when computer move computation is complete."""
+            if isinstance(result, Exception):
+                logger.error(f"Computer move computation failed: {result}")
+                self.computer_move_ready.send(self, move=None, error=str(result))
+            else:
+                if result:
+                    # Apply the computer's move
+                    self.board_state.make_move(result)
+                    self.computer_move_ready.send(self, move=result)
+                else:
+                    logger.warning("Engine returned no move")
+                    self.computer_move_ready.send(self, move=None, error="Engine returned no move")
+        
+        # Use async version with callback
+        self.engine_adapter.get_best_move_async(
+            fen, difficulty_config.time_ms, difficulty_config.depth, callback=on_move_ready
+        )
