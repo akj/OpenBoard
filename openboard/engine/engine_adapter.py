@@ -358,7 +358,9 @@ class EngineAdapter:
                     await asyncio.wait_for(self._engine.quit(), timeout=2.0)
                     self._logger.debug("Engine quit command completed")
                 except asyncio.TimeoutError:
-                    self._logger.debug("Engine quit command timed out - continuing with cleanup")
+                    self._logger.debug(
+                        "Engine quit command timed out - continuing with cleanup"
+                    )
                 except Exception as e:
                     self._logger.debug(f"Error sending quit to engine: {e}")
 
@@ -367,27 +369,27 @@ class EngineAdapter:
                 self._logger.debug("Cleaning up engine transport")
                 try:
                     # Close transport immediately to prevent it from trying to use closed loop later
-                    if hasattr(self._transport, 'close'):
+                    if hasattr(self._transport, "close"):
                         self._transport.close()
-                    
+
                     # Then terminate process
                     try:
                         self._transport.terminate()
                         # Brief wait for termination
                         await asyncio.sleep(0.1)
-                        
+
                         # Force kill if needed
                         if self._transport.get_returncode() is None:
                             self._transport.kill()
                     except Exception:
                         pass  # Ignore termination errors after close()
-                        
+
                     self._logger.debug("Engine transport cleanup completed")
-                    
+
                 except Exception as e:
                     self._logger.debug(f"Transport cleanup warning: {e}")
 
-            # Step 3: Final small delay to ensure all async operations complete  
+            # Step 3: Final small delay to ensure all async operations complete
             await asyncio.sleep(0.05)
 
         except Exception as e:
