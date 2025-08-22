@@ -13,7 +13,7 @@ from .engine_detection import EngineDetector
 
 class CallbackExecutor:
     """Base callback executor for handling async callback execution."""
-    
+
     def execute(self, callback, *args, **kwargs):
         """Execute callback directly."""
         if callback:
@@ -22,26 +22,28 @@ class CallbackExecutor:
 
 class WxCallbackExecutor(CallbackExecutor):
     """Wx-aware callback executor that uses CallAfter for thread safety."""
-    
+
     def execute(self, callback, *args, **kwargs):
         """Execute callback using wx.CallAfter if not on main thread."""
         if not callback:
             return
-            
+
         if threading.current_thread() != threading.main_thread():
             try:
-                if HAS_WX and hasattr(wx, 'GetApp') and wx.GetApp() is not None:
+                if HAS_WX and hasattr(wx, "GetApp") and wx.GetApp() is not None:
                     wx.CallAfter(callback, *args, **kwargs)
                     return
             except (RuntimeError, AttributeError):
                 # Fallback if wx is shutting down or not properly initialized
                 pass
-        
+
         # Direct execution if on main thread or wx unavailable
         callback(*args, **kwargs)
 
+
 try:
     import wx
+
     HAS_WX = True
 except ImportError:
     HAS_WX = False
@@ -92,17 +94,19 @@ class EngineAdapter:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._engine_thread: Optional[threading.Thread] = None
         self._logger = logging.getLogger(__name__)
-        
+
         # Thread synchronization
         self._state_lock = threading.RLock()
         self._loop_ready_event = threading.Event()
         self._shutdown_event = threading.Event()
         self._active_futures = weakref.WeakSet()
-        
+
         # Callback execution strategy
         if callback_executor is None:
             # Auto-detect best callback executor
-            self._callback_executor = WxCallbackExecutor() if HAS_WX else CallbackExecutor()
+            self._callback_executor = (
+                WxCallbackExecutor() if HAS_WX else CallbackExecutor()
+            )
         else:
             self._callback_executor = callback_executor
 
@@ -123,7 +127,7 @@ class EngineAdapter:
                 raise RuntimeError("Event loop not initialized")
             future = asyncio.run_coroutine_threadsafe(self._start_engine(), self._loop)
             self._active_futures.add(future)
-            
+
             try:
                 future.result(timeout=15.0)  # Increased timeout for engine startup
             except Exception as e:
@@ -139,7 +143,7 @@ class EngineAdapter:
         with self._state_lock:
             if self._engine_thread and self._engine_thread.is_alive():
                 return
-            
+
             self._loop_ready_event.clear()
             self._shutdown_event.clear()
 
@@ -147,13 +151,13 @@ class EngineAdapter:
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    
-                    with self._state_lock:
-                        self._loop = loop
-                    
+
+                    # Assign loop to instance variable (no lock needed here)
+                    self._loop = loop
+
                     # Signal that loop is ready
                     self._loop_ready_event.set()
-                    
+
                     # Run the event loop with proper shutdown handling
                     try:
                         # Create a task to monitor shutdown event
@@ -161,15 +165,15 @@ class EngineAdapter:
                             while not self._shutdown_event.is_set():
                                 await asyncio.sleep(0.1)
                             loop.stop()
-                        
+
                         # Schedule the monitor task
                         loop.create_task(monitor_shutdown())
-                        
+
                         # Run the event loop
                         loop.run_forever()
                     except Exception as e:
                         self._logger.error(f"Event loop error: {e}")
-                            
+
                 except Exception as e:
                     self._logger.error(f"Event loop thread failed: {e}")
                     self._loop_ready_event.set()  # Unblock waiters even on error
@@ -186,7 +190,9 @@ class EngineAdapter:
                                         asyncio.gather(*pending, return_exceptions=True)
                                     )
                             except Exception as e:
-                                self._logger.warning(f"Error cleaning up event loop tasks: {e}")
+                                self._logger.warning(
+                                    f"Error cleaning up event loop tasks: {e}"
+                                )
                             finally:
                                 self._loop.close()
                         self._loop = None
@@ -209,24 +215,27 @@ class EngineAdapter:
         """Start the engine using async API with enhanced error handling."""
         try:
             self._logger.info(f"Starting engine: {self.engine_path}")
-            
+
             # Signal startup completion when done
-            
+
             # Start engine with timeout
             try:
                 self._transport, self._engine = await asyncio.wait_for(
-                    chess.engine.popen_uci(self.engine_path),
-                    timeout=10.0
+                    chess.engine.popen_uci(self.engine_path), timeout=10.0
                 )
             except asyncio.TimeoutError:
-                raise RuntimeError(f"Engine startup timed out after 10 seconds: {self.engine_path}")
-            
-            self._logger.info(f"Engine started successfully: {self._engine.id if hasattr(self._engine, 'id') else 'Unknown'}")
+                raise RuntimeError(
+                    f"Engine startup timed out after 10 seconds: {self.engine_path}"
+                )
+
+            self._logger.info(
+                f"Engine started successfully: {self._engine.id if hasattr(self._engine, 'id') else 'Unknown'}"
+            )
 
             # Configure UCI options with validation
             if self.options:
                 self._logger.debug(f"Configuring engine options: {self.options}")
-                
+
             for name, val in self.options.items():
                 try:
                     await self._engine.configure({name: val})
@@ -234,22 +243,45 @@ class EngineAdapter:
                 except chess.engine.EngineError as e:
                     self._logger.warning(f"Engine rejected option {name}={val}: {e}")
                 except Exception as e:
-                    self._logger.warning(f"Could not set engine option {name}={val}: {e}")
+                    self._logger.warning(
+                        f"Could not set engine option {name}={val}: {e}"
+                    )
 
         except FileNotFoundError:
             raise RuntimeError(f"Engine executable not found: {self.engine_path}")
         except PermissionError:
-            raise RuntimeError(f"Permission denied executing engine: {self.engine_path}")
+            raise RuntimeError(
+                f"Permission denied executing engine: {self.engine_path}"
+            )
         except chess.engine.EngineTerminatedError as e:
             raise RuntimeError(f"Engine terminated during startup: {e}")
-            
+
         except Exception as e:
             self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")
             raise RuntimeError(f"Engine startup failed: {e}") from e
-        finally:
-            # Signal startup completion (success or failure)
-            if self._startup_complete:
-                self._startup_complete.set()
+
+    def _validate_board_state(self, position: Union[str, chess.Board]) -> chess.Board:
+        """Validate and convert position to chess.Board."""
+        if isinstance(position, str):
+            try:
+                return chess.Board(position)
+            except ValueError as e:
+                raise ValueError(f"Invalid FEN string: {position}") from e
+        elif isinstance(position, chess.Board):
+            return position
+        else:
+            raise ValueError(
+                f"Position must be FEN string or chess.Board, got {type(position)}"
+            )
+
+    def _create_engine_limit(
+        self, time_ms: int, depth: Optional[int]
+    ) -> chess.engine.Limit:
+        """Create engine search limit from time and depth parameters."""
+        if depth is not None:
+            return chess.engine.Limit(depth=depth)
+        else:
+            return chess.engine.Limit(time=time_ms / 1000.0)
 
     def stop(self) -> None:
         """
@@ -259,12 +291,12 @@ class EngineAdapter:
         with self._state_lock:
             # Signal shutdown to prevent new operations
             self._shutdown_event.set()
-            
+
             # Cancel all active futures
             for future in list(self._active_futures):
                 if not future.done():
                     future.cancel()
-            
+
             # Shutdown engine if running
             if self._loop and not self._loop.is_closed() and self._engine:
                 future = asyncio.run_coroutine_threadsafe(
@@ -317,7 +349,7 @@ class EngineAdapter:
                         self._transport.kill()  # Force kill if still running
                 except Exception as e:
                     self._logger.warning(f"Error terminating engine process: {e}")
-            
+
             # Thread-safe cleanup of state
             # Note: These will be cleaned up again in stop() under lock
 
@@ -355,7 +387,7 @@ class EngineAdapter:
         with self._state_lock:
             if not self._loop or self._loop.is_closed():
                 raise RuntimeError("Engine event loop is not available")
-            
+
             # Schedule async computation and wait for result
             future = asyncio.run_coroutine_threadsafe(
                 self._get_best_move_async(position, time_ms, depth), self._loop
@@ -367,7 +399,7 @@ class EngineAdapter:
             base_timeout = max(time_ms / 1000.0, 1.0)
             buffer_timeout = min(base_timeout * 0.5, 10.0)  # Up to 10s buffer
             total_timeout = base_timeout + buffer_timeout + 5.0  # Minimum 5s buffer
-            
+
             return future.result(timeout=total_timeout)
         except Exception as e:
             msg = f"Engine failed to compute best move: {e}"
@@ -381,32 +413,38 @@ class EngineAdapter:
     ) -> chess.Move | None:
         """Async implementation of get_best_move with enhanced error handling."""
         board = self._validate_board_state(position)
-        
+
         # Return None for game-over positions
         if board.is_game_over():
             return None
-            
+
         limit = self._create_engine_limit(time_ms, depth)
 
         try:
             # Check if engine is still available
             if not self._engine:
                 raise RuntimeError("Engine became unavailable during computation")
-                
+
             result = await self._engine.play(board, limit)
-            
+
             if result.move is None:
-                self._logger.warning(f"Engine returned no move for position: {board.fen()[:50]}...")
+                self._logger.warning(
+                    f"Engine returned no move for position: {board.fen()[:50]}..."
+                )
                 return None
-                
+
             # Validate the move is legal
             if result.move not in board.legal_moves:
-                self._logger.error(f"Engine returned illegal move {result.move} for position {board.fen()[:50]}...")
+                self._logger.error(
+                    f"Engine returned illegal move {result.move} for position {board.fen()[:50]}..."
+                )
                 return None
-                
-            self._logger.debug(f"Engine found move: {result.move} (eval: {getattr(result, 'score', 'N/A')})")
+
+            self._logger.debug(
+                f"Engine found move: {result.move} (eval: {getattr(result, 'score', 'N/A')})"
+            )
             return result.move
-            
+
         except asyncio.CancelledError:
             self._logger.info("Engine computation was cancelled")
             raise
@@ -443,7 +481,7 @@ class EngineAdapter:
         with self._state_lock:
             if not self._loop or self._loop.is_closed():
                 raise RuntimeError("Engine event loop is not available")
-                
+
             future = asyncio.run_coroutine_threadsafe(
                 self._get_best_move_async(position, time_ms, depth), self._loop
             )
@@ -501,12 +539,12 @@ class EngineAdapter:
             )
 
         return cls(engine_path, options)
-    
+
     async def _ping_engine(self) -> bool:
         """Check if engine is responsive."""
         if not self._engine:
             return False
-            
+
         try:
             # Send a quick position analysis as a health check
             board = chess.Board()  # Starting position
@@ -515,13 +553,15 @@ class EngineAdapter:
             return True
         except Exception:
             return False
-            
+
     def is_healthy(self) -> bool:
         """Check if engine is running and responsive."""
         if not self.is_running():
             return False
-        
+
         try:
+            if self._loop is None:
+                return False
             future = asyncio.run_coroutine_threadsafe(self._ping_engine(), self._loop)
             return future.result(timeout=2.0)
         except Exception:
