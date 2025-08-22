@@ -45,8 +45,10 @@ class ChessController:
         self.game = game
         self.config = config or {}
         self.announce_mode = self.config.get("announce_mode", "verbose")
-        
-        logger.info(f"ChessController initialized with announce mode: {self.announce_mode}")
+
+        logger.info(
+            f"ChessController initialized with announce mode: {self.announce_mode}"
+        )
 
         # board navigation & selection
         self.current_square: int = chess.A1  # 0
@@ -69,9 +71,9 @@ class ChessController:
         game.board_state.move_undone.connect(self._on_model_undo)
         game.status_changed.connect(self._on_status_changed)
         game.hint_ready.connect(self._on_hint_ready)
-        
+
         # Hook computer move signal if it exists
-        if hasattr(game, 'computer_move_ready'):
+        if hasattr(game, "computer_move_ready"):
             game.computer_move_ready.connect(self._on_computer_move_ready)
 
         # announce initial board
@@ -89,9 +91,13 @@ class ChessController:
         if move is not None:
             ann = self._format_move_announcement(move)
             self.announce.send(self, text=ann)
-        
+
         # Check if computer should move next (but not during replay)
-        if not self._in_replay and self.game.is_computer_turn() and not self.game.board_state.board.is_game_over():
+        if (
+            not self._in_replay
+            and self.game.is_computer_turn()
+            and not self.game.board_state.board.is_game_over()
+        ):
             self._request_computer_move_async()
 
     def _on_model_undo(self, sender, move: chess.Move):
@@ -113,11 +119,13 @@ class ChessController:
         else:
             self.hint_ready.send(self, move=move)
 
-    def _on_computer_move_ready(self, sender, move: chess.Move = None, error: str = None):
+    def _on_computer_move_ready(
+        self, sender, move: chess.Move = None, error: str = None
+    ):
         """Handle computer move completion."""
         self._computer_thinking = False
         self.computer_thinking.send(self, thinking=False)
-        
+
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
         # Move announcement is handled by _on_model_move when the move is applied
@@ -155,17 +163,19 @@ class ChessController:
         if self._computer_thinking:
             self.announce.send(self, text="Computer is thinking, please wait")
             return
-            
+
         # Disable selection entirely for computer vs computer mode
         if self.game.config.mode == GameMode.COMPUTER_VS_COMPUTER:
-            self.announce.send(self, text="Manual moves not allowed in computer vs computer mode")
+            self.announce.send(
+                self, text="Manual moves not allowed in computer vs computer mode"
+            )
             return
-            
+
         # Prevent human moves when it's computer's turn
         if self.game.is_computer_turn():
             self.announce.send(self, text="It's the computer's turn")
             return
-            
+
         if self.selected_square is None:
             # pick up a piece
             self.selected_square = self.current_square
@@ -276,34 +286,34 @@ class ChessController:
         Announce the last move that was played. Bound to ] key.
         """
         move_stack = self.game.board_state.board.move_stack
-        
+
         if not move_stack:
             self.announce.send(self, text="No moves have been played yet")
             return
-        
+
         # Get the last move
         last_move = move_stack[-1]
-        
+
         # We need to reconstruct the board state before the last move to get proper context
         # Create a temporary board and replay all moves except the last one
         temp_board = chess.Board()
-        
+
         # Replay all moves except the last to get the "before" state
         for move in move_stack[:-1]:
             temp_board.push(move)
-        
+
         # Now format the announcement with the proper context
         self._pending_old_board = temp_board.copy()
-        
+
         # Apply the last move to get the "after" state
         temp_board.push(last_move)
-        
+
         # Format the announcement
         announcement = self._format_move_announcement(last_move)
-        
+
         # Clear the temporary old board
         self._pending_old_board = None
-        
+
         # Announce with "Last move:" prefix
         self.announce.send(self, text=f"Last move: {announcement}")
 
@@ -355,18 +365,20 @@ class ChessController:
         """
         board = self.game.board_state.board
         old_board = self._pending_old_board
-        
+
         if self.announce_mode == "brief":
             return self._format_brief_announcement(move, board, old_board)
         else:
             return self._format_verbose_announcement(move, board, old_board)
-    
-    def _format_brief_announcement(self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]) -> str:
+
+    def _format_brief_announcement(
+        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+    ) -> str:
         """Format brief move announcement: 'e2 e4, check'"""
         src_name = chess.square_name(move.from_square)
         dst_name = chess.square_name(move.to_square)
         announcement = f"{src_name} {dst_name}"
-        
+
         # Add game state suffixes
         if board.is_checkmate():
             announcement += ", checkmate"
@@ -374,26 +386,28 @@ class ChessController:
             announcement += ", check"
         elif board.is_stalemate():
             announcement += ", stalemate"
-        
+
         return announcement
-    
-    def _format_verbose_announcement(self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]) -> str:
+
+    def _format_verbose_announcement(
+        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+    ) -> str:
         """Format verbose move announcement with full details."""
         src, dst = move.from_square, move.to_square
         fname_src = chess.square_name(src)
         fname_dst = chess.square_name(dst)
-        
+
         # Get piece that moved
         piece = board.piece_at(dst)
         if not piece:
             return f"Unknown move {fname_src} to {fname_dst}"
-            
+
         piece_name = PIECE_NAMES[piece.piece_type]
         color = "White" if piece.color else "Black"
-        
+
         # Build base announcement
         announcement_parts = []
-        
+
         # Special move types
         if old_board and old_board.is_castling(move):
             if move.to_square > move.from_square:  # Kingside
@@ -408,9 +422,13 @@ class ChessController:
                 captured_piece = old_board.piece_at(dst)
                 if captured_piece:
                     captured_name = PIECE_NAMES[captured_piece.piece_type]
-                    announcement_parts.append(f"{color} pawn takes {captured_name}, promotes to {promoted_piece}")
+                    announcement_parts.append(
+                        f"{color} pawn takes {captured_name}, promotes to {promoted_piece}"
+                    )
                 else:
-                    announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
+                    announcement_parts.append(
+                        f"{color} pawn promotes to {promoted_piece}"
+                    )
             else:
                 announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
         elif old_board and old_board.is_capture(move):
@@ -418,13 +436,17 @@ class ChessController:
             captured_piece = old_board.piece_at(dst)
             if captured_piece:
                 captured_name = PIECE_NAMES[captured_piece.piece_type]
-                announcement_parts.append(f"{color} {piece_name} takes {captured_name} at {fname_dst}")
+                announcement_parts.append(
+                    f"{color} {piece_name} takes {captured_name} at {fname_dst}"
+                )
             else:
                 announcement_parts.append(f"{color} {piece_name} takes at {fname_dst}")
         else:
             # Regular move
-            announcement_parts.append(f"{color} {piece_name} from {fname_src} to {fname_dst}")
-        
+            announcement_parts.append(
+                f"{color} {piece_name} from {fname_src} to {fname_dst}"
+            )
+
         # Add game state information
         if board.is_checkmate():
             winner = "White" if board.turn == chess.BLACK else "Black"
@@ -440,7 +462,7 @@ class ChessController:
             announcement_parts.append("Draw available by fifty-move rule")
         elif board.can_claim_threefold_repetition():
             announcement_parts.append("Draw available by threefold repetition")
-        
+
         return ". ".join(announcement_parts)
 
     # —— Computer move handling —— #
@@ -449,10 +471,10 @@ class ChessController:
         """Request a computer move using async engine."""
         if self._computer_thinking:
             return  # Already thinking
-            
+
         self._computer_thinking = True
         self.computer_thinking.send(self, thinking=True)
-        
+
         try:
             self.game.request_computer_move_async()
         except Exception as e:

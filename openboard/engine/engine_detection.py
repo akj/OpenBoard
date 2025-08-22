@@ -61,7 +61,7 @@ class EngineDetector:
         local_result = self._check_local_installation(engine_name)
         if local_result:
             return local_result
-            
+
         # Then check if it's in PATH
         path_result = self._check_in_path(engine_name)
         if path_result:
@@ -70,33 +70,35 @@ class EngineDetector:
         # Finally check common installation locations
         return self._check_common_paths(engine_name)
 
-    def _check_local_installation(self, engine_name: str = "stockfish") -> Optional[str]:
+    def _check_local_installation(
+        self, engine_name: str = "stockfish"
+    ) -> Optional[str]:
         """
         Check for locally installed engines in OpenBoard's engines directory.
-        
+
         Args:
             engine_name: Name of the engine to find
-            
+
         Returns:
             Path to the engine executable, or None if not found
         """
         if engine_name != "stockfish":
             return None  # Currently only support Stockfish
-            
+
         # Check OpenBoard's local installation directory
         local_engines_dir = Path.cwd() / "engines" / "stockfish" / "bin"
-        
+
         if not local_engines_dir.exists():
             return None
-            
+
         # Look for Stockfish executable
         possible_names = ["stockfish.exe", "stockfish"]
-        
+
         for name in possible_names:
             exe_path = local_engines_dir / name
             if exe_path.exists() and self._is_valid_engine(str(exe_path)):
                 return str(exe_path)
-                
+
         return None
 
     def _check_in_path(self, engine_name: str) -> Optional[str]:

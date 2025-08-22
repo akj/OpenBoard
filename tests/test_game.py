@@ -76,10 +76,10 @@ def test_pawn_promotion_default_queen():
     # Set up position with white pawn on 7th rank ready to promote
     fen = "8/7P/8/8/8/8/8/8 w - - 0 1"
     game.board_state.load_fen(fen)
-    
+
     # Move pawn to 8th rank without specifying promotion piece
     game.apply_move(chess.H7, chess.H8)
-    
+
     # Should automatically promote to queen
     promoted_piece = game.board_state.board.piece_at(chess.H8)
     assert promoted_piece is not None
@@ -94,14 +94,12 @@ def test_pawn_promotion_explicit_piece():
         # Set up position with white pawn on 7th rank ready to promote
         fen = "8/7P/8/8/8/8/8/8 w - - 0 1"
         game.board_state.load_fen(fen)
-        
+
         # Move pawn to 8th rank with explicit promotion
         game.apply_move(chess.H7, chess.H8, promotion=promotion_piece)
-        
+
         # Should promote to specified piece
         promoted_piece = game.board_state.board.piece_at(chess.H8)
         assert promoted_piece is not None
         assert promoted_piece.piece_type == promotion_piece
         assert promoted_piece.color == chess.WHITE
-
-

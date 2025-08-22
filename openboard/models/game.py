@@ -21,7 +21,11 @@ class Game:
       - re-emit signals for views/controllers
     """
 
-    def __init__(self, engine_adapter: Optional[EngineAdapter] = None, config: Optional[GameConfig] = None):
+    def __init__(
+        self,
+        engine_adapter: Optional[EngineAdapter] = None,
+        config: Optional[GameConfig] = None,
+    ):
         """
         :param engine_adapter: if supplied, used to generate hints via UCI.
         :param config: game configuration including mode and difficulty
@@ -30,15 +34,15 @@ class Game:
         self.board_state = BoardState()
         self.config = config or GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
         self.computer_color: Optional[chess.Color] = None
-        
+
         # Set up computer color if in human vs computer mode
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
             self.computer_color = get_computer_color(self.config.human_color)
-        
+
         engine_status = "with engine" if engine_adapter else "without engine"
         mode_status = f"mode: {self.config.mode.value}"
         logger.info(f"Game initialized {engine_status}, {mode_status}")
-        
+
         # Signals:
         #   move_made: forwarded from BoardState
         #   hint_ready: emitted when engine returns a best move
@@ -76,19 +80,24 @@ class Game:
                 self.computer_color = get_computer_color(self.config.human_color)
             else:
                 self.computer_color = None
-        
+
         # reinitialize board_state and re-hook signals
         self.board_state = BoardState()
         self.board_state.move_made.connect(self._on_board_move)
         self.board_state.status_changed.connect(self._on_status)
-        
+
         # For backward compatibility
         self.player_color = self.config.human_color
-        
+
         # announce new status
         self.status_changed.send(self, status=self.board_state.game_status())
 
-    def apply_move(self, src_square: chess.Square, dst_square: chess.Square, promotion: Optional[chess.PieceType] = None):
+    def apply_move(
+        self,
+        src_square: chess.Square,
+        dst_square: chess.Square,
+        promotion: Optional[chess.PieceType] = None,
+    ):
         """
         Create a Move from two square indexes and push it.
         For pawn promotions, defaults to queen if no promotion piece specified.
@@ -98,18 +107,23 @@ class Game:
         # Check if this is a pawn promotion move
         board = self.board_state.board
         piece = board.piece_at(src_square)
-        
+
         # Detect pawn promotion: pawn moving to back rank
-        if (piece and piece.piece_type == chess.PAWN and 
-            ((piece.color == chess.WHITE and chess.square_rank(dst_square) == 7) or
-             (piece.color == chess.BLACK and chess.square_rank(dst_square) == 0))):
+        if (
+            piece
+            and piece.piece_type == chess.PAWN
+            and (
+                (piece.color == chess.WHITE and chess.square_rank(dst_square) == 7)
+                or (piece.color == chess.BLACK and chess.square_rank(dst_square) == 0)
+            )
+        ):
             # Default to queen promotion if not specified
             if promotion is None:
                 promotion = chess.QUEEN
             mv = chess.Move(src_square, dst_square, promotion=promotion)
         else:
             mv = chess.Move(src_square, dst_square)
-            
+
         self.board_state.make_move(mv)
 
     def request_hint(self, time_ms: int = 1000) -> chess.Move | None:
@@ -119,7 +133,9 @@ class Game:
         :raises RuntimeError if no engine_adapter is set.
         """
         if not self.engine_adapter:
-            raise RuntimeError("No chess engine available. Please install Stockfish to get hints.")
+            raise RuntimeError(
+                "No chess engine available. Please install Stockfish to get hints."
+            )
         fen = self.board_state._board.fen()
         best_move = self.engine_adapter.get_best_move(fen, time_ms)
         self.hint_ready.send(self, move=best_move)
@@ -132,10 +148,12 @@ class Game:
         :raises RuntimeError if no engine_adapter is set.
         """
         if not self.engine_adapter:
-            raise RuntimeError("No chess engine available. Please install Stockfish to get hints.")
-        
+            raise RuntimeError(
+                "No chess engine available. Please install Stockfish to get hints."
+            )
+
         fen = self.board_state._board.fen()
-        
+
         def on_hint_ready(result):
             """Callback when hint computation is complete."""
             if isinstance(result, Exception):
@@ -143,7 +161,7 @@ class Game:
                 self.hint_ready.send(self, move=None, error=str(result))
             else:
                 self.hint_ready.send(self, move=result)
-        
+
         # Use async version with callback
         self.engine_adapter.get_best_move_async(fen, time_ms, callback=on_hint_ready)
 
@@ -164,11 +182,14 @@ class Game:
         Uses difficulty-based timing and emits computer_move_ready signal.
         :raises RuntimeError if no engine_adapter is set or not in computer mode.
         """
-        if self.config.mode not in [GameMode.HUMAN_VS_COMPUTER, GameMode.COMPUTER_VS_COMPUTER]:
+        if self.config.mode not in [
+            GameMode.HUMAN_VS_COMPUTER,
+            GameMode.COMPUTER_VS_COMPUTER,
+        ]:
             raise RuntimeError("Not in a computer vs mode")
         if not self.engine_adapter:
             raise RuntimeError("No chess engine available for computer opponent")
-        
+
         # Determine which difficulty to use based on whose turn it is
         difficulty_config = None
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
@@ -185,20 +206,22 @@ class Game:
                 if not self.config.black_difficulty:
                     raise RuntimeError("No difficulty level set for black computer")
                 difficulty_config = get_difficulty_config(self.config.black_difficulty)
-        
+
         if difficulty_config is None:
             raise RuntimeError("Unable to determine difficulty configuration")
-        
+
         fen = self.board_state._board.fen()
-        
+
         # Use difficulty-based timing and/or depth
-        best_move = self.engine_adapter.get_best_move(fen, difficulty_config.time_ms, difficulty_config.depth)
-        
+        best_move = self.engine_adapter.get_best_move(
+            fen, difficulty_config.time_ms, difficulty_config.depth
+        )
+
         if best_move:
             # Apply the computer's move
             self.board_state.make_move(best_move)
             self.computer_move_ready.send(self, move=best_move)
-        
+
         return best_move
 
     def request_computer_move_async(self) -> None:
@@ -207,11 +230,14 @@ class Game:
         Emits computer_move_ready signal when computation is complete.
         :raises RuntimeError if no engine_adapter is set or not in computer mode.
         """
-        if self.config.mode not in [GameMode.HUMAN_VS_COMPUTER, GameMode.COMPUTER_VS_COMPUTER]:
+        if self.config.mode not in [
+            GameMode.HUMAN_VS_COMPUTER,
+            GameMode.COMPUTER_VS_COMPUTER,
+        ]:
             raise RuntimeError("Not in a computer vs mode")
         if not self.engine_adapter:
             raise RuntimeError("No chess engine available for computer opponent")
-        
+
         # Determine which difficulty to use based on whose turn it is
         difficulty_config = None
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
@@ -228,12 +254,12 @@ class Game:
                 if not self.config.black_difficulty:
                     raise RuntimeError("No difficulty level set for black computer")
                 difficulty_config = get_difficulty_config(self.config.black_difficulty)
-        
+
         if difficulty_config is None:
             raise RuntimeError("Unable to determine difficulty configuration")
-        
+
         fen = self.board_state._board.fen()
-        
+
         def on_move_ready(result):
             """Callback when computer move computation is complete."""
             if isinstance(result, Exception):
@@ -247,9 +273,14 @@ class Game:
                     self.board_state.make_move(result)
                 else:
                     logger.warning("Engine returned no move")
-                    self.computer_move_ready.send(self, move=None, error="Engine returned no move")
-        
+                    self.computer_move_ready.send(
+                        self, move=None, error="Engine returned no move"
+                    )
+
         # Use async version with callback
         self.engine_adapter.get_best_move_async(
-            fen, difficulty_config.time_ms, difficulty_config.depth, callback=on_move_ready
+            fen,
+            difficulty_config.time_ms,
+            difficulty_config.depth,
+            callback=on_move_ready,
         )

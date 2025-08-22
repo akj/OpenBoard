@@ -65,7 +65,7 @@ class EngineAdapter:
 
         # Start asyncio event loop in background thread
         self._start_async_loop()
-        
+
         # Initialize engine in the async loop
         future = asyncio.run_coroutine_threadsafe(self._start_engine(), self._loop)
         try:
@@ -99,15 +99,19 @@ class EngineAdapter:
     async def _start_engine(self) -> None:
         """Start the engine using async API."""
         try:
-            self._transport, self._engine = await chess.engine.popen_uci(self.engine_path)
-            
+            self._transport, self._engine = await chess.engine.popen_uci(
+                self.engine_path
+            )
+
             # Configure UCI options
             for name, val in self.options.items():
                 try:
                     await self._engine.configure({name: val})
                 except Exception as e:
-                    self._logger.warning(f"Could not set engine option {name}={val}: {e}")
-                    
+                    self._logger.warning(
+                        f"Could not set engine option {name}={val}: {e}"
+                    )
+
         except Exception as e:
             self._logger.error(f"Failed to start engine: {e}")
             raise
@@ -120,7 +124,9 @@ class EngineAdapter:
         if self._loop and not self._loop.is_closed():
             # Schedule engine shutdown
             if self._engine:
-                future = asyncio.run_coroutine_threadsafe(self._stop_engine(), self._loop)
+                future = asyncio.run_coroutine_threadsafe(
+                    self._stop_engine(), self._loop
+                )
                 try:
                     future.result(timeout=5.0)
                 except Exception as e:
@@ -148,10 +154,17 @@ class EngineAdapter:
 
     def is_running(self) -> bool:
         """Returns True if the engine is currently running."""
-        return self._engine is not None and self._loop is not None and not self._loop.is_closed()
+        return (
+            self._engine is not None
+            and self._loop is not None
+            and not self._loop.is_closed()
+        )
 
     def get_best_move(
-        self, position: Union[str, chess.Board], time_ms: int = 1000, depth: Optional[int] = None
+        self,
+        position: Union[str, chess.Board],
+        time_ms: int = 1000,
+        depth: Optional[int] = None,
     ) -> chess.Move | None:
         """
         Synchronously get the engine's best move for the given position.
@@ -170,12 +183,13 @@ class EngineAdapter:
 
         # Schedule async computation and wait for result
         future = asyncio.run_coroutine_threadsafe(
-            self._get_best_move_async(position, time_ms, depth), 
-            self._loop
+            self._get_best_move_async(position, time_ms, depth), self._loop
         )
-        
+
         try:
-            return future.result(timeout=max(time_ms / 1000.0 + 5.0, 10.0))  # Add buffer to timeout
+            return future.result(
+                timeout=max(time_ms / 1000.0 + 5.0, 10.0)
+            )  # Add buffer to timeout
         except Exception as e:
             msg = f"Engine failed to compute best move: {e}"
             self._logger.error(msg)
@@ -211,13 +225,16 @@ class EngineAdapter:
             raise
 
     def get_best_move_async(
-        self, position: Union[str, chess.Board], time_ms: int = 1000, 
-        depth: Optional[int] = None, callback=None
+        self,
+        position: Union[str, chess.Board],
+        time_ms: int = 1000,
+        depth: Optional[int] = None,
+        callback=None,
     ) -> Future:
         """
         Get best move asynchronously with callback support.
         Returns a Future that can be used to check completion or add callbacks.
-        
+
         :param position: either a FEN string or a chess.Board instance.
         :param time_ms: think time in milliseconds.
         :param depth: search depth limit (optional, overrides time if provided).
@@ -228,13 +245,14 @@ class EngineAdapter:
             raise RuntimeError("Engine is not running; call start() first.")
 
         future = asyncio.run_coroutine_threadsafe(
-            self._get_best_move_async(position, time_ms, depth), 
-            self._loop
+            self._get_best_move_async(position, time_ms, depth), self._loop
         )
-        
+
         if callback:
-            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else f.exception()))
-            
+            future.add_done_callback(
+                lambda f: callback(f.result() if not f.exception() else f.exception())
+            )
+
         return future
 
     # Optional context manager support

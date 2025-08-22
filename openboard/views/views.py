@@ -9,7 +9,12 @@ from ..models.game import Game
 from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
-from .game_dialogs import show_game_setup_dialog, show_difficulty_info_dialog, show_computer_vs_computer_dialog, show_move_list_dialog
+from .game_dialogs import (
+    show_game_setup_dialog,
+    show_difficulty_info_dialog,
+    show_computer_vs_computer_dialog,
+    show_move_list_dialog,
+)
 
 logger = get_logger(__name__)
 
@@ -190,23 +195,49 @@ class ChessFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_load_fen, id=wx.ID_OPEN)
         self.Bind(wx.EVT_MENU, self.on_load_pgn, id=wx.ID_ANY)
         self.Bind(wx.EVT_MENU, lambda e: self.Close(), id=wx.ID_EXIT)
-        
+
         # Bind game menu events
-        self.Bind(wx.EVT_MENU, self.on_new_human_vs_human, id=game_menu.GetMenuItems()[0].GetId())
-        self.Bind(wx.EVT_MENU, self.on_new_human_vs_computer, id=game_menu.GetMenuItems()[1].GetId())
-        self.Bind(wx.EVT_MENU, self.on_new_computer_vs_computer, id=game_menu.GetMenuItems()[2].GetId())
-        self.Bind(wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[4].GetId())
-        
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_new_human_vs_human,
+            id=game_menu.GetMenuItems()[0].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_new_human_vs_computer,
+            id=game_menu.GetMenuItems()[1].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_new_computer_vs_computer,
+            id=game_menu.GetMenuItems()[2].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[4].GetId()
+        )
+
         self.Bind(
             wx.EVT_MENU,
             lambda e: controller.toggle_announce_mode(),
             id=options_menu.GetMenuItems()[0].GetId(),
         )
-        
-        # Bind engine menu events  
-        self.Bind(wx.EVT_MENU, self.on_install_stockfish, id=engine_menu.GetMenuItems()[0].GetId())
-        self.Bind(wx.EVT_MENU, self.on_update_stockfish, id=engine_menu.GetMenuItems()[1].GetId()) 
-        self.Bind(wx.EVT_MENU, self.on_check_engine_status, id=engine_menu.GetMenuItems()[3].GetId())
+
+        # Bind engine menu events
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_install_stockfish,
+            id=engine_menu.GetMenuItems()[0].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_update_stockfish,
+            id=engine_menu.GetMenuItems()[1].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_check_engine_status,
+            id=engine_menu.GetMenuItems()[3].GetId(),
+        )
 
         # Bind key events for navigation & commands
         self.board_panel.Bind(wx.EVT_CHAR_HOOK, self.on_key)
@@ -299,7 +330,7 @@ class ChessFrame(wx.Frame):
             # Convert the move to a human-readable format
             move_text = self._format_move_for_speech(move)
             hint_message = f"Hint: {move_text}"
-            
+
             # Announce the hint using the controller's announce system
             self.controller.announce.send(self.controller, text=hint_message)
         else:
@@ -310,29 +341,31 @@ class ChessFrame(wx.Frame):
     def _format_move_for_speech(self, move):
         """Format a chess move for speech output."""
         import chess
-        
+
         # Get basic move notation
         if move is None:
             return "no move"
-            
+
         # Use algebraic notation for the move
         board = self.controller.game.board_state.board
-        
+
         try:
             # Get standard algebraic notation (SAN) - e.g. "Nf3", "e4", "O-O"
             san = board.san(move)
-            
+
             # Make it more speech-friendly
             san_speech = san.replace("+", " check").replace("#", " checkmate")
-            san_speech = san_speech.replace("O-O-O", "castle queenside").replace("O-O", "castle kingside")
-            
+            san_speech = san_speech.replace("O-O-O", "castle queenside").replace(
+                "O-O", "castle kingside"
+            )
+
             # Add "from" and "to" squares for clarity
             from_square = chess.square_name(move.from_square)
             to_square = chess.square_name(move.to_square)
-            
+
             # Format: "Knight f3 (from g1 to f3)" or "e4 (from e2 to e4)"
             return f"{san_speech}, from {from_square} to {to_square}"
-            
+
         except Exception:
             # Fallback to basic UCI notation if SAN fails
             return f"from {chess.square_name(move.from_square)} to {chess.square_name(move.to_square)}"
@@ -341,29 +374,29 @@ class ChessFrame(wx.Frame):
         """Handle Engine > Install Stockfish menu selection."""
         from ..engine.stockfish_manager import StockfishManager
         from .engine_dialogs import EngineInstallationRunner
-        
+
         manager = StockfishManager()
-        
+
         if not manager.can_install():
             instructions = manager.get_installation_instructions()
             wx.MessageBox(
                 f"Automatic installation is not supported on this platform.\n\n{instructions}",
                 "Manual Installation Required",
-                wx.OK | wx.ICON_INFORMATION
+                wx.OK | wx.ICON_INFORMATION,
             )
             return
-            
+
         # Check if already installed
         status = manager.get_status()
         if status["local_installed"] and not status["update_available"]:
             result = wx.MessageBox(
                 f"Stockfish {status['local_version']} is already installed.\n\nDo you want to reinstall?",
                 "Already Installed",
-                wx.YES_NO | wx.ICON_QUESTION
+                wx.YES_NO | wx.ICON_QUESTION,
             )
             if result != wx.YES:
                 return
-                
+
         # Run installation
         runner = EngineInstallationRunner(self, manager)
         runner.start_installation()
@@ -372,28 +405,28 @@ class ChessFrame(wx.Frame):
         """Handle Engine > Update Stockfish menu selection."""
         from ..engine.stockfish_manager import StockfishManager
         from .engine_dialogs import EngineInstallationRunner
-        
+
         manager = StockfishManager()
         status = manager.get_status()
-        
+
         if not status["local_installed"]:
             result = wx.MessageBox(
                 "No local Stockfish installation found.\n\nWould you like to install it now?",
                 "Not Installed",
-                wx.YES_NO | wx.ICON_QUESTION
+                wx.YES_NO | wx.ICON_QUESTION,
             )
             if result == wx.YES:
                 self.on_install_stockfish(event)
             return
-            
+
         if not status["update_available"]:
             wx.MessageBox(
                 f"Stockfish {status['local_version']} is already up to date.",
                 "Up to Date",
-                wx.OK | wx.ICON_INFORMATION
+                wx.OK | wx.ICON_INFORMATION,
             )
             return
-            
+
         # Run update
         runner = EngineInstallationRunner(self, manager)
         runner.start_installation()
@@ -402,12 +435,12 @@ class ChessFrame(wx.Frame):
         """Handle Engine > Check Engine Status menu selection."""
         from ..engine.stockfish_manager import StockfishManager
         from .engine_dialogs import EngineStatusDialog
-        
+
         manager = StockfishManager()
-        
+
         with EngineStatusDialog(self, manager) as dialog:
             result = dialog.ShowModal()
-            
+
             # If user clicked Install/Update, trigger installation
             if result == wx.ID_OK:
                 status = manager.get_status()
@@ -420,7 +453,9 @@ class ChessFrame(wx.Frame):
         """Handle Game > New Game: Human vs Human menu selection."""
         config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN, human_color=chess.WHITE)
         self.controller.game.new_game(config)
-        self.controller.announce.send(self.controller, text="New human vs human game started")
+        self.controller.announce.send(
+            self.controller, text="New human vs human game started"
+        )
 
     def on_new_human_vs_computer(self, event):
         """Handle Game > New Game: Human vs Computer menu selection."""
@@ -428,10 +463,10 @@ class ChessFrame(wx.Frame):
             wx.MessageBox(
                 "No chess engine available. Please install Stockfish to play against the computer.",
                 "Engine Required",
-                wx.OK | wx.ICON_WARNING
+                wx.OK | wx.ICON_WARNING,
             )
             return
-            
+
         # Show game setup dialog
         result = show_game_setup_dialog(self)
         if result:
@@ -439,15 +474,15 @@ class ChessFrame(wx.Frame):
             config = GameConfig(
                 mode=GameMode.HUMAN_VS_COMPUTER,
                 human_color=human_color,
-                difficulty=difficulty
+                difficulty=difficulty,
             )
             self.controller.game.new_game(config)
-            
+
             color_name = "White" if human_color == chess.WHITE else "Black"
             difficulty_name = difficulty.value.title()
             message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
             self.controller.announce.send(self.controller, text=message)
-            
+
             # If computer plays white, start its move
             if self.controller.game.is_computer_turn():
                 self.controller._request_computer_move_async()
@@ -458,21 +493,24 @@ class ChessFrame(wx.Frame):
             wx.MessageBox(
                 "No chess engine available. Please install Stockfish to play computer vs computer games.",
                 "Engine Required",
-                wx.OK | wx.ICON_WARNING
+                wx.OK | wx.ICON_WARNING,
             )
             return
-        
+
         result = show_computer_vs_computer_dialog(self)
         if result:
             white_difficulty, black_difficulty = result
             config = GameConfig(
                 mode=GameMode.COMPUTER_VS_COMPUTER,
                 white_difficulty=white_difficulty,
-                black_difficulty=black_difficulty
+                black_difficulty=black_difficulty,
             )
             self.controller.game.new_game(config)
-            self.controller.announce.send(self.controller, text=f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}")
-            
+            self.controller.announce.send(
+                self.controller,
+                text=f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}",
+            )
+
             # Start the first computer move if it's white's turn
             if self.controller.game.is_computer_turn():
                 self.controller._request_computer_move_async()
@@ -490,18 +528,20 @@ class ChessFrame(wx.Frame):
         """Show the move list dialog (Ctrl+L)."""
         # Get current move list from board state
         move_list = list(self.controller.game.board_state.board.move_stack)
-        
+
         if not move_list:
             # Use controller's announce system instead of direct speech
-            self.controller.announce.send(self.controller, text="No moves in current game")
+            self.controller.announce.send(
+                self.controller, text="No moves in current game"
+            )
             return
-        
+
         # Calculate current position (number of moves played)
         current_position = len(move_list) - 1
-        
+
         # Show dialog
         selected_position = show_move_list_dialog(self, move_list, current_position)
-        
+
         if selected_position is not None:
             # Navigate to the selected position
             self._navigate_to_position(selected_position, move_list)
@@ -509,11 +549,13 @@ class ChessFrame(wx.Frame):
     def _navigate_to_position(self, target_position: int, move_list):
         """Navigate to a specific position in the game."""
         current_position = len(self.controller.game.board_state.board.move_stack) - 1
-        
+
         if target_position == current_position:
-            self.controller.announce.send(self.controller, text="Already at selected position")
+            self.controller.announce.send(
+                self.controller, text="Already at selected position"
+            )
             return
-        
+
         # Calculate how many moves to undo or redo
         if target_position < current_position:
             # Need to undo moves
@@ -523,17 +565,22 @@ class ChessFrame(wx.Frame):
                     self.controller.undo()
                 except IndexError:
                     break
-            
+
             if target_position < 0:
-                self.controller.announce.send(self.controller, text="Navigated to starting position")
+                self.controller.announce.send(
+                    self.controller, text="Navigated to starting position"
+                )
             else:
-                self.controller.announce.send(self.controller, text=f"Navigated to position after move {target_position + 1}")
-        
+                self.controller.announce.send(
+                    self.controller,
+                    text=f"Navigated to position after move {target_position + 1}",
+                )
+
         elif target_position > current_position:
             # Need to replay moves
             board = self.controller.game.board_state.board
             moves_to_replay = target_position - current_position
-            
+
             for i in range(moves_to_replay):
                 move_index = current_position + 1 + i
                 if move_index < len(move_list):
@@ -546,15 +593,18 @@ class ChessFrame(wx.Frame):
                         )
                     except (ValueError, IndexError):
                         break
-            
-            self.controller.announce.send(self.controller, text=f"Navigated to position after move {target_position + 1}")
+
+            self.controller.announce.send(
+                self.controller,
+                text=f"Navigated to position after move {target_position + 1}",
+            )
 
 
 def main():
     # Initialize logging
     setup_logging(log_level="INFO", console_output=True)
     logger.info("Starting OpenBoard")
-    
+
     # load config
     try:
         with open("config.json") as f:
@@ -562,7 +612,9 @@ def main():
         logger.info("Configuration loaded from config.json")
     except Exception as e:
         cfg = {"announce_mode": "verbose"}
-        logger.info(f"Using default configuration (config.json not found or invalid: {e})")
+        logger.info(
+            f"Using default configuration (config.json not found or invalid: {e})"
+        )
 
     # set up engine & game
     try:
@@ -590,7 +642,7 @@ def main():
     if game.engine:
         logger.info("Shutting down engine")
         game.engine.stop()
-    
+
     logger.info("OpenBoard shutdown complete")
 
 
