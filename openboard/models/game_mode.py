@@ -1,11 +1,11 @@
 """Game mode definitions and configuration."""
 
-from enum import Enum
+from enum import StrEnum
 from dataclasses import dataclass
 import chess
 
 
-class GameMode(Enum):
+class GameMode(StrEnum):
     """Supported game modes."""
 
     HUMAN_VS_HUMAN = "human_vs_human"
@@ -13,7 +13,7 @@ class GameMode(Enum):
     COMPUTER_VS_COMPUTER = "computer_vs_computer"
 
 
-class DifficultyLevel(Enum):
+class DifficultyLevel(StrEnum):
     """Difficulty levels for computer opponent."""
 
     BEGINNER = "beginner"

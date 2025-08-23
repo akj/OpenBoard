@@ -157,14 +157,14 @@ class BoardPanel(wx.Panel):
         elif mode == GameMode.HUMAN_VS_COMPUTER:
             difficulty = self.controller.game.config.difficulty
             if difficulty:
-                return f"Chess board - Human vs Computer ({difficulty.value})"
+                return f"Chess board - Human vs Computer ({difficulty})"
             else:
                 return "Chess board - Human vs Computer"
         elif mode == GameMode.COMPUTER_VS_COMPUTER:
             white_diff = self.controller.game.config.white_difficulty
             black_diff = self.controller.game.config.black_difficulty
             if white_diff and black_diff:
-                return f"Chess board - Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
+                return f"Chess board - Computer vs Computer (White: {white_diff}, Black: {black_diff})"
             else:
                 return "Chess board - Computer vs Computer"
         else:
@@ -508,7 +508,7 @@ class ChessFrame(wx.Frame):
             self.controller.game.new_game(config)
 
             color_name = "White" if human_color == chess.WHITE else "Black"
-            difficulty_name = difficulty.value.title()
+            difficulty_name = difficulty.title()
             message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
             self.controller.announce.send(self.controller, text=message)
 
@@ -537,7 +537,7 @@ class ChessFrame(wx.Frame):
             self.controller.game.new_game(config)
             self.controller.announce.send(
                 self.controller,
-                text=f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}",
+                text=f"New computer vs computer game started. White: {white_difficulty}, Black: {black_difficulty}",
             )
 
             # Start the first computer move if it's white's turn

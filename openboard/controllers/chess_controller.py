@@ -499,16 +499,18 @@ class ChessController:
             difficulty = self.game.config.difficulty
             if difficulty:
                 if self.game.config.human_color == chess.WHITE:
-                    mode_text = f"You are White vs Computer ({difficulty.value})"
+                    mode_text = f"You are White vs Computer ({difficulty})"
                 else:
-                    mode_text = f"You are Black vs Computer ({difficulty.value})"
+                    mode_text = f"You are Black vs Computer ({difficulty})"
             else:
                 mode_text = "Human vs Computer"
         elif mode == GameMode.COMPUTER_VS_COMPUTER:
             white_diff = self.game.config.white_difficulty
             black_diff = self.game.config.black_difficulty
             if white_diff and black_diff:
-                mode_text = f"Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
+                mode_text = (
+                    f"Computer vs Computer (White: {white_diff}, Black: {black_diff})"
+                )
             else:
                 mode_text = "Computer vs Computer"
         else:

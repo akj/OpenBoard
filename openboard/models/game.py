@@ -39,7 +39,7 @@ class Game:
             self.computer_color = get_computer_color(self.config.human_color)
 
         engine_status = "with engine" if engine_adapter else "without engine"
-        mode_status = f"mode: {self.config.mode.value}"
+        mode_status = f"mode: {self.config.mode}"
         logger.info(f"Game initialized {engine_status}, {mode_status}")
 
         # Signals:
