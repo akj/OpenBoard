@@ -5,7 +5,7 @@ import logging
 import platform
 import zipfile
 from pathlib import Path
-from typing import Dict, Any, Callable
+from typing import Any, Callable
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
@@ -83,7 +83,7 @@ class StockfishDownloader:
 
         return None
 
-    def find_windows_binary_url(self, release_data: Dict[str, Any]) -> str | None:
+    def find_windows_binary_url(self, release_data: dict[str, Any]) -> str | None:
         """
         Find the best Windows binary download URL from release assets.
 

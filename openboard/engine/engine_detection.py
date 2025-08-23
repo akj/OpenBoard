@@ -4,7 +4,6 @@ import os
 import shutil
 import platform
 from pathlib import Path
-from typing import List, Dict
 
 
 class EngineDetector:
@@ -143,7 +142,7 @@ class EngineDetector:
 
     def get_installation_instructions(
         self, engine_name: str = "stockfish"
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Get platform-specific installation instructions for an engine.
 
@@ -172,7 +171,7 @@ class EngineDetector:
             "generic": f"Please install {engine_name} and ensure it's available in your system PATH."
         }
 
-    def list_available_engines(self) -> List[str]:
+    def list_available_engines(self) -> list[str]:
         """
         List all available UCI engines found on the system.
 

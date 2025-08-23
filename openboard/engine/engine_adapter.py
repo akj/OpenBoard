@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import threading
-from typing import Union, Dict, Any
+from typing import Any
 from concurrent.futures import Future
 import weakref
 
@@ -67,7 +67,7 @@ class EngineAdapter:
     def __init__(
         self,
         engine_path: str | None = None,
-        options: Dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
         callback_executor: CallbackExecutor | None = None,
     ):
         """
@@ -260,7 +260,7 @@ class EngineAdapter:
             self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")
             raise RuntimeError(f"Engine startup failed: {e}") from e
 
-    def _validate_board_state(self, position: Union[str, chess.Board]) -> chess.Board:
+    def _validate_board_state(self, position: str | chess.Board) -> chess.Board:
         """Validate and convert position to chess.Board."""
         if isinstance(position, str):
             try:
@@ -418,7 +418,7 @@ class EngineAdapter:
 
     def get_best_move(
         self,
-        position: Union[str, chess.Board],
+        position: str | chess.Board,
         time_ms: int = 1000,
         depth: int | None = None,
     ) -> chess.Move | None:
@@ -462,7 +462,7 @@ class EngineAdapter:
             self._active_futures.discard(future)
 
     async def _get_best_move_async(
-        self, position: Union[str, chess.Board], time_ms: int, depth: int | None
+        self, position: str | chess.Board, time_ms: int, depth: int | None
     ) -> chess.Move | None:
         """Async implementation of get_best_move with enhanced error handling."""
         board = self._validate_board_state(position)
@@ -513,7 +513,7 @@ class EngineAdapter:
 
     def get_best_move_async(
         self,
-        position: Union[str, chess.Board],
+        position: str | chess.Board,
         time_ms: int = 1000,
         depth: int | None = None,
         callback=None,
@@ -569,7 +569,7 @@ class EngineAdapter:
 
     @classmethod
     def create_with_auto_detection(
-        cls, engine_name: str = "stockfish", options: Dict[str, Any] | None = None
+        cls, engine_name: str = "stockfish", options: dict[str, Any] | None = None
     ) -> "EngineAdapter":
         """
         Create an EngineAdapter with automatic engine detection.

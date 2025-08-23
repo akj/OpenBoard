@@ -10,7 +10,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 import chess
 import chess.engine
 from concurrent.futures import Future
-from typing import List
 
 from openboard.engine.engine_adapter import EngineAdapter
 
@@ -85,8 +84,8 @@ def test_adapter_state_lock_prevents_races() -> None:
     """Test that state lock prevents race conditions."""
     adapter = EngineAdapter(engine_path="/fake/path")
 
-    results: List[bool] = []
-    errors: List[Exception] = []
+    results: list[bool] = []
+    errors: list[Exception] = []
 
     def worker():
         try:

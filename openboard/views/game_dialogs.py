@@ -2,7 +2,6 @@
 
 import wx
 import chess
-from typing import Tuple, List
 
 from ..models.game_mode import DifficultyLevel, DIFFICULTY_CONFIGS
 
@@ -107,7 +106,7 @@ class GameSetupDialog(wx.Dialog):
         if selection != wx.NOT_FOUND:
             self.difficulty = self.difficulty_choice.GetClientData(selection)
 
-    def get_game_config(self) -> Tuple[chess.Color, DifficultyLevel]:
+    def get_game_config(self) -> tuple[chess.Color, DifficultyLevel]:
         """Get the selected game configuration."""
         return self.human_color, self.difficulty
 
@@ -163,7 +162,7 @@ class DifficultyInfoDialog(wx.Dialog):
         self.SetSizer(main_sizer)
 
 
-def show_game_setup_dialog(parent) -> Tuple[chess.Color, DifficultyLevel] | None:
+def show_game_setup_dialog(parent) -> tuple[chess.Color, DifficultyLevel] | None:
     """
     Show the game setup dialog and return the selected configuration.
 
@@ -270,14 +269,14 @@ class ComputerVsComputerDialog(wx.Dialog):
         if selection != wx.NOT_FOUND:
             self.black_difficulty = self.black_choice.GetClientData(selection)
 
-    def get_game_config(self) -> Tuple[DifficultyLevel, DifficultyLevel]:
+    def get_game_config(self) -> tuple[DifficultyLevel, DifficultyLevel]:
         """Get the selected game configuration."""
         return self.white_difficulty, self.black_difficulty
 
 
 def show_computer_vs_computer_dialog(
     parent,
-) -> Tuple[DifficultyLevel, DifficultyLevel] | None:
+) -> tuple[DifficultyLevel, DifficultyLevel] | None:
     """
     Show the computer vs computer setup dialog and return the selected configuration.
 
@@ -302,7 +301,7 @@ class MoveListDialog(wx.Dialog):
     def __init__(
         self,
         parent,
-        move_list: List[chess.Move],
+        move_list: list[chess.Move],
         current_position: int = -1,
         allow_navigation: bool = True,
         is_ongoing_game: bool = False,
@@ -570,7 +569,7 @@ class MoveListDialog(wx.Dialog):
 
 def show_move_list_dialog(
     parent,
-    move_list: List[chess.Move],
+    move_list: list[chess.Move],
     current_position: int = -1,
     allow_navigation: bool = True,
     is_ongoing_game: bool = False,

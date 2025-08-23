@@ -2,7 +2,6 @@ import chess
 import chess.pgn
 from io import StringIO
 from blinker import Signal
-from typing import List
 
 from ..models.game import Game
 from ..models.game_mode import GameMode
@@ -56,7 +55,7 @@ class ChessController:
 
         # for PGN replay
         self._in_replay: bool = False
-        self._replay_moves: List[chess.Move] = []
+        self._replay_moves: list[chess.Move] = []
         self._replay_index: int = 0
 
         # to help generate captures, we stash the pre‐move board when

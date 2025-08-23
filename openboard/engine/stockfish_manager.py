@@ -3,7 +3,7 @@
 import logging
 import platform
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from blinker import signal
 
@@ -41,7 +41,7 @@ class StockfishManager:
         self.detector = EngineDetector()
         self._logger = logging.getLogger(__name__)
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         Get comprehensive Stockfish status information.
 
