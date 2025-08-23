@@ -51,6 +51,11 @@ class BoardPanel(wx.Panel):
         self.selected = None
         self.hint_move = None
 
+        # Set accessible name based on game mode
+        accessible_name = self._get_accessible_panel_name()
+        self.SetName(accessible_name)
+        self.SetLabel(accessible_name)
+
         # subscribe to controller signals
         controller.board_updated.connect(self.on_board_updated)
         controller.square_focused.connect(self.on_square_focused)
@@ -140,6 +145,30 @@ class BoardPanel(wx.Panel):
                         )
                     )
                     dc.DrawText(glyph, x + 10, y + 8)
+
+    def _get_accessible_panel_name(self):
+        """Generate accessible panel name based on game mode."""
+        from ..models.game_mode import GameMode
+
+        mode = self.controller.game.config.mode
+
+        if mode == GameMode.HUMAN_VS_HUMAN:
+            return "Chess board - Human vs Human"
+        elif mode == GameMode.HUMAN_VS_COMPUTER:
+            difficulty = self.controller.game.config.difficulty
+            if difficulty:
+                return f"Chess board - Human vs Computer ({difficulty.value})"
+            else:
+                return "Chess board - Human vs Computer"
+        elif mode == GameMode.COMPUTER_VS_COMPUTER:
+            white_diff = self.controller.game.config.white_difficulty
+            black_diff = self.controller.game.config.black_difficulty
+            if white_diff and black_diff:
+                return f"Chess board - Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
+            else:
+                return "Chess board - Computer vs Computer"
+        else:
+            return "Chess board"
 
 
 class ChessFrame(wx.Frame):

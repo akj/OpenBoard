@@ -78,7 +78,7 @@ class ChessController:
 
         # announce initial board
         self._emit_board_update()
-        self._announce_square(self.current_square)
+        self._announce_initial_game_state()
 
     # —— Model signal handlers —— #
 
@@ -487,3 +487,47 @@ class ChessController:
     def is_computer_thinking(self) -> bool:
         """Check if computer is currently thinking."""
         return self._computer_thinking
+
+    def _announce_initial_game_state(self):
+        """Announce the initial game state with mode context and current square."""
+        mode = self.game.config.mode
+
+        if mode == GameMode.HUMAN_VS_HUMAN:
+            mode_text = "Human vs Human"
+        elif mode == GameMode.HUMAN_VS_COMPUTER:
+            difficulty = self.game.config.difficulty
+            if difficulty:
+                if self.game.config.human_color == chess.WHITE:
+                    mode_text = f"You are White vs Computer ({difficulty.value})"
+                else:
+                    mode_text = f"You are Black vs Computer ({difficulty.value})"
+            else:
+                mode_text = "Human vs Computer"
+        elif mode == GameMode.COMPUTER_VS_COMPUTER:
+            white_diff = self.game.config.white_difficulty
+            black_diff = self.game.config.black_difficulty
+            if white_diff and black_diff:
+                mode_text = f"Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
+            else:
+                mode_text = "Computer vs Computer"
+        else:
+            mode_text = "Chess game"
+
+        self.announce.send(self, text=mode_text)
+
+        # Announce just the current square name
+        square_name = chess.square_name(self.current_square)
+        self.announce.send(self, text=square_name)
+
+    def _get_square_description(self, square: int) -> str:
+        """Get a concise description of what's at a square."""
+        b = self.game.board_state.board
+        piece = b.piece_at(square)
+        square_name = chess.square_name(square)
+
+        if piece:
+            color = "White" if piece.color else "Black"
+            name = PIECE_NAMES[piece.piece_type]
+            return f"{color} {name} on {square_name}"
+        else:
+            return f"Empty square {square_name}"
