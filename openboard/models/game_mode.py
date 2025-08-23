@@ -2,7 +2,6 @@
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
 import chess
 
 
@@ -30,7 +29,7 @@ class DifficultyConfig:
     name: str
     description: str
     time_ms: int  # Thinking time in milliseconds
-    depth: Optional[int] = None  # Search depth (None for time-based only)
+    depth: int | None = None  # Search depth (None for time-based only)
 
 
 @dataclass
@@ -39,9 +38,9 @@ class GameConfig:
 
     mode: GameMode
     human_color: chess.Color = chess.WHITE
-    difficulty: Optional[DifficultyLevel] = None
-    white_difficulty: Optional[DifficultyLevel] = None
-    black_difficulty: Optional[DifficultyLevel] = None
+    difficulty: DifficultyLevel | None = None
+    white_difficulty: DifficultyLevel | None = None
+    black_difficulty: DifficultyLevel | None = None
 
     def __post_init__(self):
         """Validate configuration."""

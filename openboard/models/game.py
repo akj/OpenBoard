@@ -1,4 +1,3 @@
-from typing import Optional
 import chess
 from blinker import Signal
 
@@ -23,8 +22,8 @@ class Game:
 
     def __init__(
         self,
-        engine_adapter: Optional[EngineAdapter] = None,
-        config: Optional[GameConfig] = None,
+        engine_adapter: EngineAdapter | None = None,
+        config: GameConfig | None = None,
     ):
         """
         :param engine_adapter: if supplied, used to generate hints via UCI.
@@ -33,7 +32,7 @@ class Game:
         self.engine_adapter = engine_adapter
         self.board_state = BoardState()
         self.config = config or GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
-        self.computer_color: Optional[chess.Color] = None
+        self.computer_color: chess.Color | None = None
 
         # Set up computer color if in human vs computer mode
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
@@ -58,7 +57,7 @@ class Game:
         self.board_state.status_changed.connect(self._on_status)
 
     @property
-    def engine(self) -> Optional[EngineAdapter]:
+    def engine(self) -> EngineAdapter | None:
         """Alias for engine_adapter for backward compatibility."""
         return self.engine_adapter
 
@@ -70,7 +69,7 @@ class Game:
         """Forward board_state.status_changed to Game.status_changed."""
         self.status_changed.send(self, status=status)
 
-    def new_game(self, config: Optional[GameConfig] = None):
+    def new_game(self, config: GameConfig | None = None):
         """
         Reset to a fresh starting position with new game configuration.
         """
@@ -96,7 +95,7 @@ class Game:
         self,
         src_square: chess.Square,
         dst_square: chess.Square,
-        promotion: Optional[chess.PieceType] = None,
+        promotion: chess.PieceType | None = None,
     ):
         """
         Create a Move from two square indexes and push it.

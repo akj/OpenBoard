@@ -2,7 +2,7 @@
 
 import wx
 import chess
-from typing import Optional, Tuple, List
+from typing import Tuple, List
 
 from ..models.game_mode import DifficultyLevel, DIFFICULTY_CONFIGS
 
@@ -163,7 +163,7 @@ class DifficultyInfoDialog(wx.Dialog):
         self.SetSizer(main_sizer)
 
 
-def show_game_setup_dialog(parent) -> Optional[Tuple[chess.Color, DifficultyLevel]]:
+def show_game_setup_dialog(parent) -> Tuple[chess.Color, DifficultyLevel] | None:
     """
     Show the game setup dialog and return the selected configuration.
 
@@ -277,7 +277,7 @@ class ComputerVsComputerDialog(wx.Dialog):
 
 def show_computer_vs_computer_dialog(
     parent,
-) -> Optional[Tuple[DifficultyLevel, DifficultyLevel]]:
+) -> Tuple[DifficultyLevel, DifficultyLevel] | None:
     """
     Show the computer vs computer setup dialog and return the selected configuration.
 
@@ -574,7 +574,7 @@ def show_move_list_dialog(
     current_position: int = -1,
     allow_navigation: bool = True,
     is_ongoing_game: bool = False,
-) -> Optional[int]:
+) -> int | None:
     """
     Show the move list dialog and return the selected position.
 

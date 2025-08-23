@@ -3,7 +3,7 @@
 import logging
 import platform
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from blinker import signal
 
@@ -30,7 +30,7 @@ class StockfishManager:
     installation_completed = signal("installation_completed")
     update_available = signal("update_available")
 
-    def __init__(self, install_dir: Optional[Path] = None):
+    def __init__(self, install_dir: Path | None = None):
         """
         Initialize the manager.
 
@@ -82,7 +82,7 @@ class StockfishManager:
 
         return status
 
-    def get_best_engine_path(self) -> Optional[str]:
+    def get_best_engine_path(self) -> str | None:
         """
         Get the best available Stockfish executable path.
         Prefers local installation over system installation.
@@ -190,7 +190,7 @@ class StockfishManager:
         )
         return self.install_stockfish()  # Same process as installation
 
-    def check_for_updates(self) -> Optional[str]:
+    def check_for_updates(self) -> str | None:
         """
         Check if updates are available.
         Emits update_available signal if an update is found.

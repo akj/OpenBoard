@@ -3,7 +3,6 @@
 import logging
 import wx
 import threading
-from typing import Optional
 
 from ..engine.stockfish_manager import StockfishManager
 
@@ -43,7 +42,7 @@ class EngineProgressDialog(wx.ProgressDialog):
         else:
             logger.warning("EndModal called on non-modal dialog, ignoring")
 
-    def update_progress(self, current: int, message: str = None):
+    def update_progress(self, current: int, message: str | None = None):
         """Update progress and optionally change message."""
         try:
             if message:
@@ -206,8 +205,8 @@ class EngineInstallationRunner:
     def __init__(self, parent_window, manager: StockfishManager):
         self.parent = parent_window
         self.manager = manager
-        self.progress_dialog: Optional[EngineProgressDialog] = None
-        self.installation_thread: Optional[threading.Thread] = None
+        self.progress_dialog: EngineProgressDialog | None = None
+        self.installation_thread: threading.Thread | None = None
 
         # Connect to manager signals
         self.manager.installation_started.connect(self._on_installation_started)

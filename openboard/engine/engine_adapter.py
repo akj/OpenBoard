@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import threading
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any
 from concurrent.futures import Future
 import weakref
 
@@ -66,9 +66,9 @@ class EngineAdapter:
 
     def __init__(
         self,
-        engine_path: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
-        callback_executor: Optional[CallbackExecutor] = None,
+        engine_path: str | None = None,
+        options: Dict[str, Any] | None = None,
+        callback_executor: CallbackExecutor | None = None,
     ):
         """
         :param engine_path: path to the UCI engine executable. If None, will auto-detect.
@@ -89,10 +89,10 @@ class EngineAdapter:
 
         self.engine_path = engine_path
         self.options = options or {}
-        self._engine: Optional[chess.engine.Protocol] = None
-        self._transport: Optional[asyncio.SubprocessTransport] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._engine_thread: Optional[threading.Thread] = None
+        self._engine: chess.engine.Protocol | None = None
+        self._transport: asyncio.SubprocessTransport | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._engine_thread: threading.Thread | None = None
         self._logger = logging.getLogger(__name__)
 
         # Thread synchronization
@@ -275,7 +275,7 @@ class EngineAdapter:
             )
 
     def _create_engine_limit(
-        self, time_ms: int, depth: Optional[int]
+        self, time_ms: int, depth: int | None
     ) -> chess.engine.Limit:
         """Create engine search limit from time and depth parameters."""
         if depth is not None:
@@ -420,7 +420,7 @@ class EngineAdapter:
         self,
         position: Union[str, chess.Board],
         time_ms: int = 1000,
-        depth: Optional[int] = None,
+        depth: int | None = None,
     ) -> chess.Move | None:
         """
         Synchronously get the engine's best move for the given position.
@@ -462,7 +462,7 @@ class EngineAdapter:
             self._active_futures.discard(future)
 
     async def _get_best_move_async(
-        self, position: Union[str, chess.Board], time_ms: int, depth: Optional[int]
+        self, position: Union[str, chess.Board], time_ms: int, depth: int | None
     ) -> chess.Move | None:
         """Async implementation of get_best_move with enhanced error handling."""
         board = self._validate_board_state(position)
@@ -515,7 +515,7 @@ class EngineAdapter:
         self,
         position: Union[str, chess.Board],
         time_ms: int = 1000,
-        depth: Optional[int] = None,
+        depth: int | None = None,
         callback=None,
     ) -> Future:
         """
@@ -569,7 +569,7 @@ class EngineAdapter:
 
     @classmethod
     def create_with_auto_detection(
-        cls, engine_name: str = "stockfish", options: Optional[Dict[str, Any]] = None
+        cls, engine_name: str = "stockfish", options: Dict[str, Any] | None = None
     ) -> "EngineAdapter":
         """
         Create an EngineAdapter with automatic engine detection.

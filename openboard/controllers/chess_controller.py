@@ -2,7 +2,7 @@ import chess
 import chess.pgn
 from io import StringIO
 from blinker import Signal
-from typing import Optional, List
+from typing import List
 
 from ..models.game import Game
 from ..models.game_mode import GameMode
@@ -37,7 +37,7 @@ class ChessController:
     hint_ready = Signal()  # args: move (chess.Move)
     computer_thinking = Signal()  # args: thinking (bool)
 
-    def __init__(self, game: Game, config: Optional[dict] = None):
+    def __init__(self, game: Game, config: dict | None = None):
         """
         :param game: the Game model
         :param config: e.g. {"announce_mode": "verbose" or "brief"}
@@ -52,7 +52,7 @@ class ChessController:
 
         # board navigation & selection
         self.current_square: int = chess.A1  # 0
-        self.selected_square: Optional[int] = None
+        self.selected_square: int | None = None
 
         # for PGN replay
         self._in_replay: bool = False
@@ -61,7 +61,7 @@ class ChessController:
 
         # to help generate captures, we stash the pre‐move board when
         # apply_move is called by the controller:
-        self._pending_old_board: Optional[chess.Board] = None
+        self._pending_old_board: chess.Board | None = None
 
         # computer move handling
         self._computer_thinking: bool = False
@@ -112,7 +112,9 @@ class ChessController:
         if status != "In progress":
             self.announce.send(self, text=f"Game over: {status}")
 
-    def _on_hint_ready(self, sender, move: chess.Move = None, error: str = None):
+    def _on_hint_ready(
+        self, sender, move: chess.Move | None = None, error: str | None = None
+    ):
         """Forward engine hints to the view."""
         if error:
             self.announce.send(self, text=f"Hint failed: {error}")
@@ -120,7 +122,7 @@ class ChessController:
             self.hint_ready.send(self, move=move)
 
     def _on_computer_move_ready(
-        self, sender, move: chess.Move = None, error: str = None
+        self, sender, move: chess.Move | None = None, error: str | None = None
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
@@ -372,7 +374,7 @@ class ChessController:
             return self._format_verbose_announcement(move, board, old_board)
 
     def _format_brief_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
     ) -> str:
         """Format brief move announcement: 'e2 e4, check'"""
         src_name = chess.square_name(move.from_square)
@@ -390,7 +392,7 @@ class ChessController:
         return announcement
 
     def _format_verbose_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
     ) -> str:
         """Format verbose move announcement with full details."""
         src, dst = move.from_square, move.to_square

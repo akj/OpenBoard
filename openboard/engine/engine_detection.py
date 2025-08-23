@@ -4,7 +4,7 @@ import os
 import shutil
 import platform
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import List, Dict
 
 
 class EngineDetector:
@@ -47,7 +47,7 @@ class EngineDetector:
     def __init__(self):
         self.system = platform.system().lower()
 
-    def find_engine(self, engine_name: str = "stockfish") -> Optional[str]:
+    def find_engine(self, engine_name: str = "stockfish") -> str | None:
         """
         Find a chess engine executable on the system.
 
@@ -70,9 +70,7 @@ class EngineDetector:
         # Finally check common installation locations
         return self._check_common_paths(engine_name)
 
-    def _check_local_installation(
-        self, engine_name: str = "stockfish"
-    ) -> Optional[str]:
+    def _check_local_installation(self, engine_name: str = "stockfish") -> str | None:
         """
         Check for locally installed engines in OpenBoard's engines directory.
 
@@ -101,7 +99,7 @@ class EngineDetector:
 
         return None
 
-    def _check_in_path(self, engine_name: str) -> Optional[str]:
+    def _check_in_path(self, engine_name: str) -> str | None:
         """Check if the engine is available in system PATH."""
         possible_names = self.ENGINE_NAMES.get(engine_name, [engine_name])
 
@@ -111,7 +109,7 @@ class EngineDetector:
                 return path
         return None
 
-    def _check_common_paths(self, engine_name: str) -> Optional[str]:
+    def _check_common_paths(self, engine_name: str) -> str | None:
         """Check common installation paths for the engine."""
         possible_names = self.ENGINE_NAMES.get(engine_name, [engine_name])
         common_paths = self.COMMON_PATHS.get(self.system, [])
