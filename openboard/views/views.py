@@ -1,6 +1,7 @@
 import json
 import wx
 import chess
+from pathlib import Path
 
 import accessible_output3.outputs.auto as ao2
 
@@ -10,6 +11,12 @@ from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
 from ..config.settings import get_settings
+from ..config.keyboard_config import (
+    GameKeyboardConfig,
+    KeyboardCommandHandler,
+    KeyAction,
+    load_keyboard_config_from_json,
+)
 from ..exceptions import EngineError, EngineNotFoundError, EngineInitializationError
 from .game_dialogs import (
     show_game_setup_dialog,
@@ -189,6 +196,10 @@ class ChessFrame(wx.Frame):
         # Use the correct attribute for accessible_output3
         self.speech = ao2.Auto()
 
+        # Initialize keyboard configuration
+        self.keyboard_config = self._load_keyboard_config()
+        self.keyboard_handler = self._create_keyboard_handler()
+
         # create menu
         menu_bar = wx.MenuBar()
         file_menu = wx.Menu()
@@ -304,50 +315,18 @@ class ChessFrame(wx.Frame):
                 self.controller.load_pgn(text)
 
     def on_key(self, event):
-        """
-        Map arrow keys, space, shift+space, F5/F6, Ctrl+Z, H to controller.
-        """
+        """Handle keyboard events using configuration-based system."""
         key = event.GetKeyCode()
         shift = event.ShiftDown()
         ctrl = event.ControlDown()
+        alt = event.AltDown()
 
-        # navigation
-        if key == wx.WXK_UP:
-            self.controller.navigate("up")
-        elif key == wx.WXK_DOWN:
-            self.controller.navigate("down")
-        elif key == wx.WXK_LEFT:
-            self.controller.navigate("left")
-        elif key == wx.WXK_RIGHT:
-            self.controller.navigate("right")
-        # select / deselect
-        elif key == ord(" ") and not shift:
-            self.controller.select()
-        elif key == ord(" ") and shift:
-            self.controller.deselect()
-        # undo
-        elif key == ord("Z") and ctrl:
-            self.controller.undo()
-        # hint
-        elif key == ord("H"):
-            self.controller.request_hint()
-        # PGN replay
-        elif key == wx.WXK_F5:
-            self.controller.replay_prev()
-        elif key == wx.WXK_F6:
-            self.controller.replay_next()
-        # toggle announce
-        elif key == ord("T") and ctrl:
-            self.controller.toggle_announce_mode()
-        # move list
-        elif key == ord("L") and ctrl:
-            self.on_show_move_list()
-        # announce last move
-        elif key == ord("]"):
-            self.controller.announce_last_move()
-        else:
-            # skip unhandled
-            event.Skip()
+        # Try to handle the key event using the configuration system
+        if self.keyboard_handler.handle_key_event(key, shift, ctrl, alt):
+            return  # Event was handled
+
+        # If not handled, skip the event
+        event.Skip()
 
     def on_announce(self, sender, text: str):
         """Speak and echo the announcement."""
@@ -649,6 +628,45 @@ class ChessFrame(wx.Frame):
                 self.controller,
                 text=f"Navigated to position after move {target_position + 1}",
             )
+
+    def _load_keyboard_config(self) -> GameKeyboardConfig:
+        """Load keyboard configuration from JSON file or use default."""
+        config_path = (
+            Path(__file__).parent.parent.parent / "config" / "keyboard_config.json"
+        )
+
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    json_data = f.read()
+                return load_keyboard_config_from_json(json_data)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load keyboard config from {config_path}: {e}"
+                )
+
+        # Return default configuration
+        return GameKeyboardConfig()
+
+    def _create_keyboard_handler(self) -> KeyboardCommandHandler:
+        """Create keyboard command handler with action mappings."""
+        action_handlers = {
+            KeyAction.NAVIGATE_UP: lambda: self.controller.navigate("up"),
+            KeyAction.NAVIGATE_DOWN: lambda: self.controller.navigate("down"),
+            KeyAction.NAVIGATE_LEFT: lambda: self.controller.navigate("left"),
+            KeyAction.NAVIGATE_RIGHT: lambda: self.controller.navigate("right"),
+            KeyAction.SELECT: lambda: self.controller.select(),
+            KeyAction.DESELECT: lambda: self.controller.deselect(),
+            KeyAction.UNDO: lambda: self.controller.undo(),
+            KeyAction.REQUEST_HINT: lambda: self.controller.request_hint(),
+            KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
+            KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
+            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: self.controller.toggle_announce_mode(),
+            KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
+            KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
+        }
+
+        return KeyboardCommandHandler(self.keyboard_config, action_handlers)
 
 
 def main():

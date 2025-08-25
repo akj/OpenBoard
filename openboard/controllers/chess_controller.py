@@ -415,7 +415,7 @@ class ChessController:
         is_castling = old_board and old_board.is_castling(move)
         is_en_passant = old_board and old_board.is_en_passant(move)
         is_capture = old_board and old_board.is_capture(move)
-        
+
         match (is_castling, is_en_passant, bool(move.promotion), is_capture):
             case (True, _, _, _):
                 # Castling move
@@ -423,41 +423,49 @@ class ChessController:
                     announcement_parts.append(f"{color} castles kingside")
                 else:  # Queenside
                     announcement_parts.append(f"{color} castles queenside")
-            
+
             case (_, True, _, _):
                 # En passant capture
-                announcement_parts.append(f"{color} pawn takes en passant at {fname_dst}")
-            
+                announcement_parts.append(
+                    f"{color} pawn takes en passant at {fname_dst}"
+                )
+
             case (_, _, True, True):
                 # Promotion with capture
-                promoted_piece = PIECE_NAMES[move.promotion]
-                captured_piece = old_board.piece_at(dst)
-                if captured_piece:
-                    captured_name = PIECE_NAMES[captured_piece.piece_type]
-                    announcement_parts.append(
-                        f"{color} pawn takes {captured_name}, promotes to {promoted_piece}"
-                    )
-                else:
+                if move.promotion:
+                    promoted_piece = PIECE_NAMES[move.promotion]
+                    captured_piece = old_board.piece_at(dst) if old_board else None
+                    if captured_piece:
+                        captured_name = PIECE_NAMES[captured_piece.piece_type]
+                        announcement_parts.append(
+                            f"{color} pawn takes {captured_name}, promotes to {promoted_piece}"
+                        )
+                    else:
+                        announcement_parts.append(
+                            f"{color} pawn promotes to {promoted_piece}"
+                        )
+
+            case (_, _, True, False):
+                # Promotion without capture
+                if move.promotion:
+                    promoted_piece = PIECE_NAMES[move.promotion]
                     announcement_parts.append(
                         f"{color} pawn promotes to {promoted_piece}"
                     )
-            
-            case (_, _, True, False):
-                # Promotion without capture
-                promoted_piece = PIECE_NAMES[move.promotion]
-                announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
-            
+
             case (_, _, False, True):
                 # Regular capture
-                captured_piece = old_board.piece_at(dst)
+                captured_piece = old_board.piece_at(dst) if old_board else None
                 if captured_piece:
                     captured_name = PIECE_NAMES[captured_piece.piece_type]
                     announcement_parts.append(
                         f"{color} {piece_name} takes {captured_name} at {fname_dst}"
                     )
                 else:
-                    announcement_parts.append(f"{color} {piece_name} takes at {fname_dst}")
-            
+                    announcement_parts.append(
+                        f"{color} {piece_name} takes at {fname_dst}"
+                    )
+
             case _:
                 # Regular move
                 announcement_parts.append(
@@ -467,11 +475,11 @@ class ChessController:
         # Add game state information using pattern matching
         match (
             board.is_checkmate(),
-            board.is_check(), 
+            board.is_check(),
             board.is_stalemate(),
             board.is_insufficient_material(),
             board.can_claim_fifty_moves(),
-            board.can_claim_threefold_repetition()
+            board.can_claim_threefold_repetition(),
         ):
             case (True, _, _, _, _, _):
                 winner = "White" if board.turn == chess.BLACK else "Black"
@@ -516,10 +524,11 @@ class ChessController:
     def _announce_initial_game_state(self):
         """Announce the initial game state with mode context and current square."""
         # Generate mode announcement using pattern matching
+        mode_text: str = "Chess game"  # Default fallback
         match self.game.config.mode:
             case GameMode.HUMAN_VS_HUMAN:
                 mode_text = "Human vs Human"
-            
+
             case GameMode.HUMAN_VS_COMPUTER:
                 difficulty = self.game.config.difficulty
                 if difficulty:
@@ -530,17 +539,15 @@ class ChessController:
                             mode_text = f"You are Black vs Computer ({difficulty})"
                 else:
                     mode_text = "Human vs Computer"
-            
+
             case GameMode.COMPUTER_VS_COMPUTER:
                 white_diff = self.game.config.white_difficulty
                 black_diff = self.game.config.black_difficulty
                 if white_diff and black_diff:
-                    mode_text = (
-                        f"Computer vs Computer (White: {white_diff}, Black: {black_diff})"
-                    )
+                    mode_text = f"Computer vs Computer (White: {white_diff}, Black: {black_diff})"
                 else:
                     mode_text = "Computer vs Computer"
-            
+
             case _:
                 mode_text = "Chess game"
 

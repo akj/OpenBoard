@@ -2,7 +2,13 @@ import chess
 from blinker import Signal
 
 from .board_state import BoardState
-from .game_mode import GameMode, GameConfig, DifficultyConfig, get_difficulty_config, get_computer_color
+from .game_mode import (
+    GameMode,
+    GameConfig,
+    DifficultyConfig,
+    get_difficulty_config,
+    get_computer_color,
+)
 from ..engine.engine_adapter import EngineAdapter
 from ..logging_config import get_logger
 from ..exceptions import EngineError, GameModeError
@@ -203,14 +209,24 @@ class Game:
                 match current_turn:
                     case chess.WHITE:
                         if not self.config.white_difficulty:
-                            raise GameModeError("No difficulty level set for white computer")
-                        difficulty_config = get_difficulty_config(self.config.white_difficulty)
+                            raise GameModeError(
+                                "No difficulty level set for white computer"
+                            )
+                        difficulty_config = get_difficulty_config(
+                            self.config.white_difficulty
+                        )
                     case _:  # chess.BLACK
                         if not self.config.black_difficulty:
-                            raise GameModeError("No difficulty level set for black computer")
-                        difficulty_config = get_difficulty_config(self.config.black_difficulty)
+                            raise GameModeError(
+                                "No difficulty level set for black computer"
+                            )
+                        difficulty_config = get_difficulty_config(
+                            self.config.black_difficulty
+                        )
             case _:
-                raise GameModeError(f"Computer moves not supported for mode: {self.config.mode}")
+                raise GameModeError(
+                    f"Computer moves not supported for mode: {self.config.mode}"
+                )
 
         fen = self.board_state._board.fen()
 
@@ -252,14 +268,24 @@ class Game:
                 match current_turn:
                     case chess.WHITE:
                         if not self.config.white_difficulty:
-                            raise GameModeError("No difficulty level set for white computer")
-                        difficulty_config = get_difficulty_config(self.config.white_difficulty)
+                            raise GameModeError(
+                                "No difficulty level set for white computer"
+                            )
+                        difficulty_config = get_difficulty_config(
+                            self.config.white_difficulty
+                        )
                     case _:  # chess.BLACK
                         if not self.config.black_difficulty:
-                            raise GameModeError("No difficulty level set for black computer")
-                        difficulty_config = get_difficulty_config(self.config.black_difficulty)
+                            raise GameModeError(
+                                "No difficulty level set for black computer"
+                            )
+                        difficulty_config = get_difficulty_config(
+                            self.config.black_difficulty
+                        )
             case _:
-                raise GameModeError(f"Computer moves not supported for mode: {self.config.mode}")
+                raise GameModeError(
+                    f"Computer moves not supported for mode: {self.config.mode}"
+                )
 
         fen = self.board_state._board.fen()
 
