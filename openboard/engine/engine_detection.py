@@ -27,19 +27,19 @@ class EngineDetector:
             "/usr/bin",
             "/usr/local/bin",
             "/opt/stockfish/bin",
-            "~/.local/bin",
+            str(Path.home() / ".local" / "bin"),
         ],
         "darwin": [  # macOS
             "/usr/local/bin",
             "/opt/homebrew/bin",
             "/usr/bin",
-            "~/Applications/Stockfish",
+            str(Path.home() / "Applications" / "Stockfish"),
         ],
         "windows": [
             r"C:\Program Files\Stockfish",
             r"C:\Program Files (x86)\Stockfish",
             r"C:\stockfish",
-            os.path.expanduser(r"~\AppData\Local\Stockfish"),
+            str(Path.home() / "AppData" / "Local" / "Stockfish"),
         ],
     }
 
@@ -114,7 +114,7 @@ class EngineDetector:
         common_paths = self.COMMON_PATHS.get(self.system, [])
 
         for base_path in common_paths:
-            expanded_path = Path(os.path.expanduser(base_path))
+            expanded_path = Path(base_path).expanduser()
             if not expanded_path.exists():
                 continue
 
