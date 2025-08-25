@@ -53,7 +53,7 @@ def test_game_request_hint_emits_signal(monkeypatch):
             return self.return_move
 
     fake_engine = FakeEngineAdapter()
-    game = Game(engine_adapter=fake_engine)
+    game = Game(engine_adapter=fake_engine)  # type: ignore
     moves = []
 
     def on_hint(sender, move):

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import threading
-from typing import Any, Self
+from typing import Any, Self, AsyncIterator
 from concurrent.futures import Future
 from contextlib import asynccontextmanager
 import weakref
@@ -839,7 +839,7 @@ class EngineAdapter:
             # Don't raise cleanup errors - let original exception propagate
 
     @asynccontextmanager
-    async def managed_engine(self):
+    async def managed_engine(self) -> AsyncIterator[Self]:
         """
         Convenience alias for the main context manager.
         Provides a cleaner API name for users.

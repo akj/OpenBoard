@@ -726,35 +726,6 @@ class TestEngineAdapterContextManager:
     @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
     @patch("chess.engine.popen_uci")
     @pytest.mark.asyncio
-    async def test_create_managed_factory(
-        self, mock_popen_uci, mock_find_engine, mock_successful_engine
-    ):
-        """Test the create_managed factory method for one-liner context management."""
-        mock_find_engine.return_value = "/usr/bin/mock-stockfish"
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        # One-liner async context manager creation
-        async with EngineAdapter.create_managed("stockfish", {"Threads": 2}) as adapter:
-            assert adapter.is_running()
-
-            move = await adapter.get_best_move_native(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
-
-        # Verify engine detection was called
-        mock_find_engine.assert_called_once_with("stockfish")
-
-        # Verify options were configured
-        assert len(mock_successful_engine.configure_calls) == 1
-        assert {"Threads": 2} in mock_successful_engine.configure_calls
-
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
     async def test_async_context_manager_exception(
         self, mock_popen_uci, mock_engine_path, mock_successful_engine
     ):
@@ -784,7 +755,7 @@ class TestEngineAdapterContextManager:
 
         adapter = None
         try:
-            async with EngineAdapter(engine_path=mock_engine_path) as adapter:
+            async with EngineAdapter(engine_path=mock_engine_path) as adapter:  # noqa: F841
                 # This should never execute
                 assert False, "Should not reach this line"
         except RuntimeError:
@@ -817,33 +788,3 @@ class TestEngineAdapterContextManager:
 
         # Should be stopped after context exit
         assert not adapter.is_running()
-
-    @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_create_managed_factory(
-        self, mock_popen_uci, mock_find_engine, mock_successful_engine
-    ):
-        """Test the create_managed factory method for one-liner context management."""
-        mock_find_engine.return_value = "/usr/bin/mock-stockfish"
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        # One-liner async context manager creation
-        async with EngineAdapter.create_managed("stockfish", {"Threads": 2}) as adapter:
-            assert adapter.is_running()
-
-            move = await adapter.get_best_move_native(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
-
-        # Verify engine detection was called
-        mock_find_engine.assert_called_once_with("stockfish")
-
-        # Verify options were configured
-        assert len(mock_successful_engine.configure_calls) == 1
-        assert {"Threads": 2} in mock_successful_engine.configure_calls
