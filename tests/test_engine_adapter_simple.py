@@ -6,7 +6,7 @@ These focus on core functionality without complex mocking.
 import pytest
 import time
 import threading
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 import chess
 import chess.engine
 from concurrent.futures import Future
@@ -35,37 +35,6 @@ def test_adapter_thread_safety_attributes() -> None:
     # Test events are initialized
     assert not adapter._loop_ready_event.is_set()
     assert not adapter._shutdown_event.is_set()
-
-
-@pytest.mark.skip(reason="Complex async mocking - core functionality tested elsewhere")
-@patch("chess.engine.popen_uci")
-def test_adapter_start_creates_thread(mock_popen_uci):
-    """Test that start() creates a background thread."""
-    # Mock a successful engine start - return a coroutine that resolves
-    mock_engine = AsyncMock()
-    mock_engine.id = {"name": "MockEngine"}
-    mock_engine.configure = AsyncMock()
-    mock_transport = MagicMock()
-
-    # Create async function that returns the mocked engine and transport
-    async def mock_popen_return():
-        return mock_transport, mock_engine
-
-    mock_popen_uci.return_value = mock_popen_return()
-
-    adapter = EngineAdapter(engine_path="/fake/path")
-
-    try:
-        adapter.start()
-
-        # Should have created a background thread
-        assert adapter._engine_thread is not None
-        assert adapter._engine_thread.is_alive()
-        assert adapter._loop_ready_event.is_set()
-        assert adapter.is_running()
-
-    finally:
-        adapter.stop()
 
 
 def test_adapter_multiple_stops_safe() -> None:
