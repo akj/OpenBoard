@@ -179,6 +179,10 @@ class ChessController:
             return
 
         if self.selected_square is None:
+            # Validate that we can select this square
+            if not self._can_select_square(self.current_square):
+                return
+
             # pick up a piece
             self.selected_square = self.current_square
             self.selection_changed.send(self, selected_square=self.current_square)
@@ -556,6 +560,33 @@ class ChessController:
         # Announce just the current square name
         square_name = chess.square_name(self.current_square)
         self.announce.send(self, text=square_name)
+
+    def _can_select_square(self, square: int) -> bool:
+        """
+        Validate that a square can be selected as a source square.
+        Returns False for empty squares or opponent's pieces.
+        """
+        board = self.game.board_state.board
+        piece = board.piece_at(square)
+        square_name = chess.square_name(square)
+
+        # Can't select empty squares
+        if piece is None:
+            self.announce.send(self, text=f"No piece at {square_name}")
+            return False
+
+        # Can't select opponent's pieces
+        if piece.color != board.turn:
+            color_name = "White" if piece.color else "Black"
+            piece_name = PIECE_NAMES[piece.piece_type]
+            turn_name = "White" if board.turn else "Black"
+            self.announce.send(
+                self,
+                text=f"Cannot select {color_name} {piece_name}, it's {turn_name}'s turn",
+            )
+            return False
+
+        return True
 
     def _get_square_description(self, square: int) -> str:
         """Get a concise description of what's at a square."""
