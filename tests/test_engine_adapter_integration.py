@@ -8,7 +8,7 @@ import threading
 import time
 import pytest
 from unittest.mock import patch
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import chess
 import chess.engine
 

@@ -6,6 +6,7 @@ from blinker import Signal
 from ..models.game import Game
 from ..models.game_mode import GameMode
 from ..logging_config import get_logger
+from ..exceptions import IllegalMoveError, EngineError
 
 logger = get_logger(__name__)
 
@@ -220,7 +221,7 @@ class ChessController:
         """
         try:
             self.game.request_hint_async()
-        except RuntimeError as e:
+        except EngineError as e:
             self.announce.send(self, text=str(e))
 
     def load_fen(self, fen: str):
@@ -328,7 +329,7 @@ class ChessController:
         self._pending_old_board = self.game.board_state.board
         try:
             self.game.apply_move(src, dst)
-        except ValueError as e:
+        except IllegalMoveError as e:
             self.announce.send(self, text=str(e))
         finally:
             # clear stash; _on_model_move will read it if present
