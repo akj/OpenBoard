@@ -1,6 +1,6 @@
 """Keyboard command configuration system using Pydantic dataclasses."""
 
-from typing import Dict, List, Optional, Callable, Protocol
+from typing import Callable, Protocol
 from enum import Enum
 from dataclasses import field
 from pydantic import Field
@@ -42,15 +42,15 @@ class KeyAction(str, Enum):
 class KeyboardConfigProtocol(Protocol):
     """Protocol for keyboard configuration classes."""
 
-    bindings: List["KeyBinding"]
+    bindings: list["KeyBinding"]
 
     def find_binding(
         self, key_code: int, shift: bool = False, ctrl: bool = False, alt: bool = False
-    ) -> Optional["KeyBinding"]:
+    ) -> "KeyBinding | None":
         """Find the first matching key binding for the given key event."""
         ...
 
-    def get_bindings_by_action(self, action: KeyAction) -> List["KeyBinding"]:
+    def get_bindings_by_action(self, action: KeyAction) -> list["KeyBinding"]:
         """Get all bindings for a specific action."""
         ...
 
@@ -64,7 +64,7 @@ class KeyBinding:
     modifiers: KeyModifier = Field(
         default=KeyModifier.NONE, description="Required modifier keys"
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None, description="Human-readable description"
     )
     enabled: bool = Field(default=True, description="Whether this binding is enabled")
@@ -122,7 +122,7 @@ class KeyBinding:
 class GameKeyboardConfig:
     """Keyboard configuration for the game board."""
 
-    bindings: List[KeyBinding] = field(
+    bindings: list[KeyBinding] = field(
         default_factory=lambda: [
             # Navigation
             KeyBinding(
@@ -197,14 +197,14 @@ class GameKeyboardConfig:
 
     def find_binding(
         self, key_code: int, shift: bool = False, ctrl: bool = False, alt: bool = False
-    ) -> Optional[KeyBinding]:
+    ) -> KeyBinding | None:
         """Find the first matching key binding for the given key event."""
         for binding in self.bindings:
             if binding.matches(key_code, shift, ctrl, alt):
                 return binding
         return None
 
-    def get_bindings_by_action(self, action: KeyAction) -> List[KeyBinding]:
+    def get_bindings_by_action(self, action: KeyAction) -> list[KeyBinding]:
         """Get all bindings for a specific action."""
         return [binding for binding in self.bindings if binding.action == action]
 
@@ -243,7 +243,7 @@ class GameKeyboardConfig:
 class DialogKeyboardConfig:
     """Keyboard configuration for dialogs."""
 
-    bindings: List[KeyBinding] = field(
+    bindings: list[KeyBinding] = field(
         default_factory=lambda: [
             KeyBinding(
                 key="wx.WXK_RETURN", action=KeyAction.SELECT, description="Accept/Apply"
@@ -271,14 +271,14 @@ class DialogKeyboardConfig:
 
     def find_binding(
         self, key_code: int, shift: bool = False, ctrl: bool = False, alt: bool = False
-    ) -> Optional[KeyBinding]:
+    ) -> KeyBinding | None:
         """Find the first matching key binding for the given key event."""
         for binding in self.bindings:
             if binding.matches(key_code, shift, ctrl, alt):
                 return binding
         return None
 
-    def get_bindings_by_action(self, action: KeyAction) -> List[KeyBinding]:
+    def get_bindings_by_action(self, action: KeyAction) -> list[KeyBinding]:
         """Get all bindings for a specific action."""
         return [binding for binding in self.bindings if binding.action == action]
 
@@ -289,7 +289,7 @@ class KeyboardCommandHandler:
     def __init__(
         self,
         config: KeyboardConfigProtocol,
-        action_handlers: Dict[KeyAction, Callable[[], None]],
+        action_handlers: dict[KeyAction, Callable[[], None]],
     ):
         """
         Initialize the keyboard command handler.
@@ -322,14 +322,14 @@ class KeyboardCommandHandler:
             return True
         return False
 
-    def get_description_for_action(self, action: KeyAction) -> Optional[str]:
+    def get_description_for_action(self, action: KeyAction) -> str | None:
         """Get a human-readable description for an action's key binding."""
         bindings = self.config.get_bindings_by_action(action)
         if bindings:
             return bindings[0].description
         return None
 
-    def list_all_bindings(self) -> List[str]:
+    def list_all_bindings(self) -> list[str]:
         """Get a list of all key bindings as human-readable strings."""
         descriptions = []
         for binding in self.config.bindings:
