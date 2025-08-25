@@ -156,23 +156,24 @@ class BoardPanel(wx.Panel):
 
         mode = self.controller.game.config.mode
 
-        if mode == GameMode.HUMAN_VS_HUMAN:
-            return "Chess board - Human vs Human"
-        elif mode == GameMode.HUMAN_VS_COMPUTER:
-            difficulty = self.controller.game.config.difficulty
-            if difficulty:
-                return f"Chess board - Human vs Computer ({difficulty})"
-            else:
-                return "Chess board - Human vs Computer"
-        elif mode == GameMode.COMPUTER_VS_COMPUTER:
-            white_diff = self.controller.game.config.white_difficulty
-            black_diff = self.controller.game.config.black_difficulty
-            if white_diff and black_diff:
-                return f"Chess board - Computer vs Computer (White: {white_diff}, Black: {black_diff})"
-            else:
-                return "Chess board - Computer vs Computer"
-        else:
-            return "Chess board"
+        match mode:
+            case GameMode.HUMAN_VS_HUMAN:
+                return "Chess board - Human vs Human"
+            case GameMode.HUMAN_VS_COMPUTER:
+                difficulty = self.controller.game.config.difficulty
+                if difficulty:
+                    return f"Chess board - Human vs Computer ({difficulty})"
+                else:
+                    return "Chess board - Human vs Computer"
+            case GameMode.COMPUTER_VS_COMPUTER:
+                white_diff = self.controller.game.config.white_difficulty
+                black_diff = self.controller.game.config.black_difficulty
+                if white_diff and black_diff:
+                    return f"Chess board - Computer vs Computer (White: {white_diff}, Black: {black_diff})"
+                else:
+                    return "Chess board - Computer vs Computer"
+            case _:
+                return "Chess board"
 
 
 class ChessFrame(wx.Frame):
