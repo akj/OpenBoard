@@ -9,6 +9,7 @@ from ..models.game import Game
 from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
+from ..config.settings import get_settings
 from .game_dialogs import (
     show_game_setup_dialog,
     show_difficulty_info_dialog,
@@ -18,23 +19,8 @@ from .game_dialogs import (
 
 logger = get_logger(__name__)
 
-# Unicode glyphs for pieces:
-PIECE_UNICODE = {
-    "P": "♙",
-    "N": "♘",
-    "B": "♗",
-    "R": "♖",
-    "Q": "♕",
-    "K": "♔",
-    "p": "♟",
-    "n": "♞",
-    "b": "♝",
-    "r": "♜",
-    "q": "♛",
-    "k": "♚",
-}
-
-SQUARE_SIZE = 60  # pixels
+# Get application settings
+settings = get_settings()
 
 
 class BoardPanel(wx.Panel):
@@ -44,7 +30,9 @@ class BoardPanel(wx.Panel):
 
     def __init__(self, parent, controller: "ChessController"):
         # wx.Size expects a wx.Size object, not a tuple
-        super().__init__(parent, size=wx.Size(8 * SQUARE_SIZE, 8 * SQUARE_SIZE))
+        super().__init__(
+            parent, size=wx.Size(settings.ui.board_size, settings.ui.board_size)
+        )
         self.controller: "ChessController" = controller
         self.board = controller.game.board_state.board
         self.focus = controller.current_square
@@ -105,37 +93,52 @@ class BoardPanel(wx.Panel):
         for rank in range(8):
             for file in range(8):
                 sq = rank * 8 + file
-                x, y = file * SQUARE_SIZE, (7 - rank) * SQUARE_SIZE
+                x, y = (
+                    file * settings.ui.square_size,
+                    (7 - rank) * settings.ui.square_size,
+                )
 
                 # square color
                 light = (file + rank) % 2 == 0
                 color = wx.Colour(240, 240, 200) if light else wx.Colour(100, 150, 100)
                 dc.SetBrush(wx.Brush(color))
                 dc.SetPen(wx.Pen(color))
-                dc.DrawRectangle(x, y, SQUARE_SIZE, SQUARE_SIZE)
+                dc.DrawRectangle(x, y, settings.ui.square_size, settings.ui.square_size)
 
                 # highlight focus
                 if sq == self.focus:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 255, 0, 64)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 255, 0)))
-                    dc.DrawRectangle(x, y, SQUARE_SIZE, SQUARE_SIZE)
+                    dc.DrawRectangle(
+                        x, y, settings.ui.square_size, settings.ui.square_size
+                    )
 
                 # highlight selection
                 if self.selected == sq:
                     dc.SetBrush(wx.Brush(wx.Colour(0, 128, 255, 96)))
                     dc.SetPen(wx.Pen(wx.Colour(0, 128, 255), 2))
-                    dc.DrawRectangle(x + 2, y + 2, SQUARE_SIZE - 4, SQUARE_SIZE - 4)
+                    dc.DrawRectangle(
+                        x + 2,
+                        y + 2,
+                        settings.ui.square_size - 4,
+                        settings.ui.square_size - 4,
+                    )
 
                 # highlight hint move destination
                 if self.hint_move and sq == self.hint_move.to_square:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 0, 0, 96)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 0, 0), 2))
-                    dc.DrawRectangle(x + 2, y + 2, SQUARE_SIZE - 4, SQUARE_SIZE - 4)
+                    dc.DrawRectangle(
+                        x + 2,
+                        y + 2,
+                        settings.ui.square_size - 4,
+                        settings.ui.square_size - 4,
+                    )
 
                 # draw piece
                 piece = self.board.piece_at(sq)
                 if piece:
-                    glyph = PIECE_UNICODE[piece.symbol()]
+                    glyph = settings.ui.piece_unicode[piece.symbol()]
                     dc.SetFont(
                         wx.Font(
                             32,
