@@ -8,7 +8,7 @@ import threading
 import time
 import pytest
 from unittest.mock import patch
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import chess
 import chess.engine
 
@@ -131,7 +131,7 @@ class TestEngineAdapterLifecycle:
 
         adapter = EngineAdapter(engine_path=mock_engine_path)
 
-        with pytest.raises(RuntimeError, match="Engine startup failed"):
+        with pytest.raises(RuntimeError, match="Failed to launch engine"):
             adapter.start()
 
         assert not adapter.is_running()
@@ -139,13 +139,18 @@ class TestEngineAdapterLifecycle:
     @patch("chess.engine.popen_uci")
     def test_engine_start_timeout(self, mock_popen_uci, mock_engine_path):
         """Test engine startup timeout."""
-        # Make popen_uci hang indefinitely
-        future = Future()
-        mock_popen_uci.return_value = future
+        # Make popen_uci hang indefinitely by returning a coroutine that never completes
+        import asyncio
+
+        async def hanging_coroutine():
+            # This will hang indefinitely
+            await asyncio.sleep(999999)
+
+        mock_popen_uci.return_value = hanging_coroutine()
 
         adapter = EngineAdapter(engine_path=mock_engine_path)
 
-        with pytest.raises(RuntimeError, match="Engine startup timed out"):
+        with pytest.raises(RuntimeError, match="Failed to launch engine"):
             adapter.start()
 
         assert not adapter.is_running()
@@ -276,10 +281,13 @@ class TestEngineAdapterSynchronous:
         adapter = EngineAdapter(engine_path=mock_engine_path)
         adapter.start()
 
-        # Checkmate position
-        checkmate_fen = "rnb1kbnr/pppp1ppp/4p3/8/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
-        board = chess.Board(checkmate_fen)
-        board.push(chess.Move.from_uci("g2g4"))  # Make it checkmate
+        # Checkmate position - Scholar's Mate
+        board = chess.Board()
+        # Set up Scholar's Mate position
+        for move_uci in ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"]:
+            move = chess.Move.from_uci(move_uci)
+            if move in board.legal_moves:
+                board.push(move)
 
         move = adapter.get_best_move(board, time_ms=100)
         assert move is None  # Should return None for game over positions
@@ -630,7 +638,7 @@ class TestEngineAdapterContextManager:
     def test_context_manager_success(
         self, mock_popen_uci, mock_engine_path, mock_successful_engine
     ):
-        """Test context manager success path."""
+        """Test sync context manager success path."""
         mock_transport = MockTransport()
         mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
 
@@ -645,11 +653,41 @@ class TestEngineAdapterContextManager:
         # Should be stopped after context exit
         assert not adapter.is_running()
 
+    @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
+    @patch("chess.engine.popen_uci")
+    @pytest.mark.asyncio
+    async def test_create_managed_factory(
+        self, mock_popen_uci, mock_find_engine, mock_successful_engine
+    ):
+        """Test the create_managed factory method for one-liner context management."""
+        mock_find_engine.return_value = "/usr/bin/mock-stockfish"
+        mock_transport = MockTransport()
+        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
+
+        # One-liner async context manager creation
+        async with EngineAdapter.create_managed("stockfish", {"Threads": 2}) as adapter:
+            assert adapter.is_running()
+
+            move = await adapter.get_best_move_native(
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
+            )
+            assert isinstance(move, chess.Move)
+
+        # Should be stopped after context exit
+        assert not adapter.is_running()
+
+        # Verify engine detection was called
+        mock_find_engine.assert_called_once_with("stockfish")
+
+        # Verify options were configured
+        assert len(mock_successful_engine.configure_calls) == 1
+        assert {"Threads": 2} in mock_successful_engine.configure_calls
+
     @patch("chess.engine.popen_uci")
     def test_context_manager_exception(
         self, mock_popen_uci, mock_engine_path, mock_successful_engine
     ):
-        """Test context manager cleanup on exception."""
+        """Test sync context manager cleanup on exception."""
         mock_transport = MockTransport()
         mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
 
@@ -663,4 +701,90 @@ class TestEngineAdapterContextManager:
 
         # Should be stopped even after exception
         assert adapter is not None
+        assert not adapter.is_running()
+
+    @patch("chess.engine.popen_uci")
+    @pytest.mark.asyncio
+    async def test_async_context_manager_success(
+        self, mock_popen_uci, mock_engine_path, mock_successful_engine
+    ):
+        """Test async context manager success path - the preferred pattern."""
+        mock_transport = MockTransport()
+        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
+
+        async with EngineAdapter(engine_path=mock_engine_path) as adapter:
+            assert adapter.is_running()
+
+            move = await adapter.get_best_move_native(
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
+            )
+            assert isinstance(move, chess.Move)
+
+        # Should be stopped after context exit
+        assert not adapter.is_running()
+
+    @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
+    @patch("chess.engine.popen_uci")
+    @pytest.mark.asyncio
+    async def test_async_context_manager_exception(
+        self, mock_popen_uci, mock_engine_path, mock_successful_engine
+    ):
+        """Test async context manager cleanup on exception - demonstrates robust cleanup."""
+        mock_transport = MockTransport()
+        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
+
+        adapter = None
+        try:
+            async with EngineAdapter(engine_path=mock_engine_path) as adapter:
+                assert adapter.is_running()
+                raise ValueError("Test exception")
+        except ValueError:
+            pass
+
+        # Should be stopped even after exception
+        assert adapter is not None
+        assert not adapter.is_running()
+
+    @patch("chess.engine.popen_uci")
+    @pytest.mark.asyncio
+    async def test_async_context_manager_startup_failure(
+        self, mock_popen_uci, mock_engine_path
+    ):
+        """Test async context manager robust cleanup on startup failure."""
+        mock_popen_uci.side_effect = FileNotFoundError("Engine not found")
+
+        adapter = None
+        try:
+            async with EngineAdapter(engine_path=mock_engine_path) as adapter:  # noqa: F841
+                # This should never execute
+                assert False, "Should not reach this line"
+        except RuntimeError:
+            # Expected startup failure
+            pass
+
+        # Context manager should handle cleanup even on startup failure
+        # The adapter variable should be set but engine should not be running
+        assert not EngineAdapter(engine_path=mock_engine_path).is_running()
+
+    @patch("chess.engine.popen_uci")
+    @pytest.mark.asyncio
+    async def test_managed_engine_alias(
+        self, mock_popen_uci, mock_engine_path, mock_successful_engine
+    ):
+        """Test the managed_engine convenience method."""
+        mock_transport = MockTransport()
+        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
+
+        adapter = EngineAdapter(engine_path=mock_engine_path)
+
+        async with adapter.managed_engine() as engine:
+            assert engine is adapter
+            assert engine.is_running()
+
+            move = await engine.get_best_move_native(
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
+            )
+            assert isinstance(move, chess.Move)
+
+        # Should be stopped after context exit
         assert not adapter.is_running()

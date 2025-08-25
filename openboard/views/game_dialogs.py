@@ -2,9 +2,13 @@
 
 import wx
 import chess
-from typing import Optional, Tuple, List
 
 from ..models.game_mode import DifficultyLevel, DIFFICULTY_CONFIGS
+from ..config.keyboard_config import (
+    DialogKeyboardConfig,
+    KeyboardCommandHandler,
+    KeyAction,
+)
 
 
 class GameSetupDialog(wx.Dialog):
@@ -107,7 +111,7 @@ class GameSetupDialog(wx.Dialog):
         if selection != wx.NOT_FOUND:
             self.difficulty = self.difficulty_choice.GetClientData(selection)
 
-    def get_game_config(self) -> Tuple[chess.Color, DifficultyLevel]:
+    def get_game_config(self) -> tuple[chess.Color, DifficultyLevel]:
         """Get the selected game configuration."""
         return self.human_color, self.difficulty
 
@@ -163,7 +167,7 @@ class DifficultyInfoDialog(wx.Dialog):
         self.SetSizer(main_sizer)
 
 
-def show_game_setup_dialog(parent) -> Optional[Tuple[chess.Color, DifficultyLevel]]:
+def show_game_setup_dialog(parent) -> tuple[chess.Color, DifficultyLevel] | None:
     """
     Show the game setup dialog and return the selected configuration.
 
@@ -270,14 +274,14 @@ class ComputerVsComputerDialog(wx.Dialog):
         if selection != wx.NOT_FOUND:
             self.black_difficulty = self.black_choice.GetClientData(selection)
 
-    def get_game_config(self) -> Tuple[DifficultyLevel, DifficultyLevel]:
+    def get_game_config(self) -> tuple[DifficultyLevel, DifficultyLevel]:
         """Get the selected game configuration."""
         return self.white_difficulty, self.black_difficulty
 
 
 def show_computer_vs_computer_dialog(
     parent,
-) -> Optional[Tuple[DifficultyLevel, DifficultyLevel]]:
+) -> tuple[DifficultyLevel, DifficultyLevel] | None:
     """
     Show the computer vs computer setup dialog and return the selected configuration.
 
@@ -302,7 +306,7 @@ class MoveListDialog(wx.Dialog):
     def __init__(
         self,
         parent,
-        move_list: List[chess.Move],
+        move_list: list[chess.Move],
         current_position: int = -1,
         allow_navigation: bool = True,
         is_ongoing_game: bool = False,
@@ -326,6 +330,9 @@ class MoveListDialog(wx.Dialog):
         self._layout_controls()
         self._bind_events()
         self._populate_moves()
+
+        # Initialize keyboard configuration
+        self._init_keyboard_config()
 
         # Set initial selection and focus
         if self.move_list:
@@ -545,23 +552,53 @@ class MoveListDialog(wx.Dialog):
         self.EndModal(wx.ID_OK)
 
     def _on_list_key(self, event):
-        """Handle keyboard navigation in the list."""
+        """Handle keyboard navigation in the list using configuration."""
         key = event.GetKeyCode()
+        shift = event.ShiftDown()
+        ctrl = event.ControlDown()
+        alt = event.AltDown()
 
-        if key == wx.WXK_RETURN or key == wx.WXK_SPACE:
-            # Apply position only if navigation is allowed
-            if self.allow_navigation:
-                self._on_goto_position(event)
-        elif key == wx.WXK_HOME:
-            if self.allow_navigation:
-                self._on_goto_start(event)
-        elif key == wx.WXK_END:
-            if self.allow_navigation:
-                self._on_goto_end(event)
-        elif key == wx.WXK_ESCAPE:
-            self.EndModal(wx.ID_CANCEL)
-        else:
-            event.Skip()
+        # Try to handle the key event using the configuration system
+        if self.keyboard_handler.handle_key_event(key, shift, ctrl, alt):
+            return  # Event was handled
+
+        # If not handled, skip the event
+        event.Skip()
+
+    def _init_keyboard_config(self):
+        """Initialize keyboard configuration for the dialog."""
+        self.keyboard_config = DialogKeyboardConfig()
+
+        # Create action handlers mapping dialog actions to methods
+        action_handlers = {
+            KeyAction.SELECT: self._handle_select_action,
+            KeyAction.NAVIGATE_UP: self._handle_navigate_start,
+            KeyAction.NAVIGATE_DOWN: self._handle_navigate_end,
+            KeyAction.DESELECT: self._handle_cancel_action,
+        }
+
+        self.keyboard_handler = KeyboardCommandHandler(
+            self.keyboard_config, action_handlers
+        )
+
+    def _handle_select_action(self):
+        """Handle select action (Return/Space)."""
+        if self.allow_navigation:
+            self.EndModal(wx.ID_OK)
+
+    def _handle_navigate_start(self):
+        """Handle navigate to start (Home)."""
+        if self.allow_navigation:
+            self._on_goto_start(None)
+
+    def _handle_navigate_end(self):
+        """Handle navigate to end (End)."""
+        if self.allow_navigation:
+            self._on_goto_end(None)
+
+    def _handle_cancel_action(self):
+        """Handle cancel action (Escape)."""
+        self.EndModal(wx.ID_CANCEL)
 
     def get_selected_position(self) -> int:
         """Get the selected move position."""
@@ -570,11 +607,11 @@ class MoveListDialog(wx.Dialog):
 
 def show_move_list_dialog(
     parent,
-    move_list: List[chess.Move],
+    move_list: list[chess.Move],
     current_position: int = -1,
     allow_navigation: bool = True,
     is_ongoing_game: bool = False,
-) -> Optional[int]:
+) -> int | None:
     """
     Show the move list dialog and return the selected position.
 

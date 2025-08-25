@@ -4,7 +4,8 @@ import os
 import shutil
 import platform
 from pathlib import Path
-from typing import Optional, List, Dict
+
+from ..config.settings import get_settings
 
 
 class EngineDetector:
@@ -22,32 +23,11 @@ class EngineDetector:
         "dragon": ["dragon", "dragon.exe"],
     }
 
-    # Common installation paths by platform
-    COMMON_PATHS = {
-        "linux": [
-            "/usr/bin",
-            "/usr/local/bin",
-            "/opt/stockfish/bin",
-            "~/.local/bin",
-        ],
-        "darwin": [  # macOS
-            "/usr/local/bin",
-            "/opt/homebrew/bin",
-            "/usr/bin",
-            "~/Applications/Stockfish",
-        ],
-        "windows": [
-            r"C:\Program Files\Stockfish",
-            r"C:\Program Files (x86)\Stockfish",
-            r"C:\stockfish",
-            os.path.expanduser(r"~\AppData\Local\Stockfish"),
-        ],
-    }
-
     def __init__(self):
         self.system = platform.system().lower()
+        self.settings = get_settings()
 
-    def find_engine(self, engine_name: str = "stockfish") -> Optional[str]:
+    def find_engine(self, engine_name: str = "stockfish") -> str | None:
         """
         Find a chess engine executable on the system.
 
@@ -70,9 +50,7 @@ class EngineDetector:
         # Finally check common installation locations
         return self._check_common_paths(engine_name)
 
-    def _check_local_installation(
-        self, engine_name: str = "stockfish"
-    ) -> Optional[str]:
+    def _check_local_installation(self, engine_name: str = "stockfish") -> str | None:
         """
         Check for locally installed engines in OpenBoard's engines directory.
 
@@ -86,7 +64,7 @@ class EngineDetector:
             return None  # Currently only support Stockfish
 
         # Check OpenBoard's local installation directory
-        local_engines_dir = Path.cwd() / "engines" / "stockfish" / "bin"
+        local_engines_dir = self.settings.engine.stockfish_dir
 
         if not local_engines_dir.exists():
             return None
@@ -101,7 +79,7 @@ class EngineDetector:
 
         return None
 
-    def _check_in_path(self, engine_name: str) -> Optional[str]:
+    def _check_in_path(self, engine_name: str) -> str | None:
         """Check if the engine is available in system PATH."""
         possible_names = self.ENGINE_NAMES.get(engine_name, [engine_name])
 
@@ -111,18 +89,17 @@ class EngineDetector:
                 return path
         return None
 
-    def _check_common_paths(self, engine_name: str) -> Optional[str]:
+    def _check_common_paths(self, engine_name: str) -> str | None:
         """Check common installation paths for the engine."""
         possible_names = self.ENGINE_NAMES.get(engine_name, [engine_name])
-        common_paths = self.COMMON_PATHS.get(self.system, [])
+        search_paths = self.settings.engine.search_paths
 
-        for base_path in common_paths:
-            expanded_path = Path(os.path.expanduser(base_path))
-            if not expanded_path.exists():
+        for base_path in search_paths:
+            if not base_path.exists():
                 continue
 
             for name in possible_names:
-                engine_path = expanded_path / name
+                engine_path = base_path / name
                 if engine_path.exists() and self._is_valid_engine(str(engine_path)):
                     return str(engine_path)
         return None
@@ -145,7 +122,7 @@ class EngineDetector:
 
     def get_installation_instructions(
         self, engine_name: str = "stockfish"
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Get platform-specific installation instructions for an engine.
 
@@ -174,7 +151,7 @@ class EngineDetector:
             "generic": f"Please install {engine_name} and ensure it's available in your system PATH."
         }
 
-    def list_available_engines(self) -> List[str]:
+    def list_available_engines(self) -> list[str]:
         """
         List all available UCI engines found on the system.
 

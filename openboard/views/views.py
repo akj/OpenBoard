@@ -1,6 +1,7 @@
 import json
 import wx
 import chess
+from pathlib import Path
 
 import accessible_output3.outputs.auto as ao2
 
@@ -9,6 +10,14 @@ from ..models.game import Game
 from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
+from ..config.settings import get_settings
+from ..config.keyboard_config import (
+    GameKeyboardConfig,
+    KeyboardCommandHandler,
+    KeyAction,
+    load_keyboard_config_from_json,
+)
+from ..exceptions import EngineError, EngineNotFoundError, EngineInitializationError
 from .game_dialogs import (
     show_game_setup_dialog,
     show_difficulty_info_dialog,
@@ -18,23 +27,8 @@ from .game_dialogs import (
 
 logger = get_logger(__name__)
 
-# Unicode glyphs for pieces:
-PIECE_UNICODE = {
-    "P": "♙",
-    "N": "♘",
-    "B": "♗",
-    "R": "♖",
-    "Q": "♕",
-    "K": "♔",
-    "p": "♟",
-    "n": "♞",
-    "b": "♝",
-    "r": "♜",
-    "q": "♛",
-    "k": "♚",
-}
-
-SQUARE_SIZE = 60  # pixels
+# Get application settings
+settings = get_settings()
 
 
 class BoardPanel(wx.Panel):
@@ -44,7 +38,9 @@ class BoardPanel(wx.Panel):
 
     def __init__(self, parent, controller: "ChessController"):
         # wx.Size expects a wx.Size object, not a tuple
-        super().__init__(parent, size=wx.Size(8 * SQUARE_SIZE, 8 * SQUARE_SIZE))
+        super().__init__(
+            parent, size=wx.Size(settings.ui.board_size, settings.ui.board_size)
+        )
         self.controller: "ChessController" = controller
         self.board = controller.game.board_state.board
         self.focus = controller.current_square
@@ -105,37 +101,52 @@ class BoardPanel(wx.Panel):
         for rank in range(8):
             for file in range(8):
                 sq = rank * 8 + file
-                x, y = file * SQUARE_SIZE, (7 - rank) * SQUARE_SIZE
+                x, y = (
+                    file * settings.ui.square_size,
+                    (7 - rank) * settings.ui.square_size,
+                )
 
                 # square color
                 light = (file + rank) % 2 == 0
                 color = wx.Colour(240, 240, 200) if light else wx.Colour(100, 150, 100)
                 dc.SetBrush(wx.Brush(color))
                 dc.SetPen(wx.Pen(color))
-                dc.DrawRectangle(x, y, SQUARE_SIZE, SQUARE_SIZE)
+                dc.DrawRectangle(x, y, settings.ui.square_size, settings.ui.square_size)
 
                 # highlight focus
                 if sq == self.focus:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 255, 0, 64)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 255, 0)))
-                    dc.DrawRectangle(x, y, SQUARE_SIZE, SQUARE_SIZE)
+                    dc.DrawRectangle(
+                        x, y, settings.ui.square_size, settings.ui.square_size
+                    )
 
                 # highlight selection
                 if self.selected == sq:
                     dc.SetBrush(wx.Brush(wx.Colour(0, 128, 255, 96)))
                     dc.SetPen(wx.Pen(wx.Colour(0, 128, 255), 2))
-                    dc.DrawRectangle(x + 2, y + 2, SQUARE_SIZE - 4, SQUARE_SIZE - 4)
+                    dc.DrawRectangle(
+                        x + 2,
+                        y + 2,
+                        settings.ui.square_size - 4,
+                        settings.ui.square_size - 4,
+                    )
 
                 # highlight hint move destination
                 if self.hint_move and sq == self.hint_move.to_square:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 0, 0, 96)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 0, 0), 2))
-                    dc.DrawRectangle(x + 2, y + 2, SQUARE_SIZE - 4, SQUARE_SIZE - 4)
+                    dc.DrawRectangle(
+                        x + 2,
+                        y + 2,
+                        settings.ui.square_size - 4,
+                        settings.ui.square_size - 4,
+                    )
 
                 # draw piece
                 piece = self.board.piece_at(sq)
                 if piece:
-                    glyph = PIECE_UNICODE[piece.symbol()]
+                    glyph = settings.ui.piece_unicode[piece.symbol()]
                     dc.SetFont(
                         wx.Font(
                             32,
@@ -152,23 +163,24 @@ class BoardPanel(wx.Panel):
 
         mode = self.controller.game.config.mode
 
-        if mode == GameMode.HUMAN_VS_HUMAN:
-            return "Chess board - Human vs Human"
-        elif mode == GameMode.HUMAN_VS_COMPUTER:
-            difficulty = self.controller.game.config.difficulty
-            if difficulty:
-                return f"Chess board - Human vs Computer ({difficulty.value})"
-            else:
-                return "Chess board - Human vs Computer"
-        elif mode == GameMode.COMPUTER_VS_COMPUTER:
-            white_diff = self.controller.game.config.white_difficulty
-            black_diff = self.controller.game.config.black_difficulty
-            if white_diff and black_diff:
-                return f"Chess board - Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
-            else:
-                return "Chess board - Computer vs Computer"
-        else:
-            return "Chess board"
+        match mode:
+            case GameMode.HUMAN_VS_HUMAN:
+                return "Chess board - Human vs Human"
+            case GameMode.HUMAN_VS_COMPUTER:
+                difficulty = self.controller.game.config.difficulty
+                if difficulty:
+                    return f"Chess board - Human vs Computer ({difficulty})"
+                else:
+                    return "Chess board - Human vs Computer"
+            case GameMode.COMPUTER_VS_COMPUTER:
+                white_diff = self.controller.game.config.white_difficulty
+                black_diff = self.controller.game.config.black_difficulty
+                if white_diff and black_diff:
+                    return f"Chess board - Computer vs Computer (White: {white_diff}, Black: {black_diff})"
+                else:
+                    return "Chess board - Computer vs Computer"
+            case _:
+                return "Chess board"
 
 
 class ChessFrame(wx.Frame):
@@ -183,6 +195,10 @@ class ChessFrame(wx.Frame):
         self.controller = controller
         # Use the correct attribute for accessible_output3
         self.speech = ao2.Auto()
+
+        # Initialize keyboard configuration
+        self.keyboard_config = self._load_keyboard_config()
+        self.keyboard_handler = self._create_keyboard_handler()
 
         # create menu
         menu_bar = wx.MenuBar()
@@ -299,50 +315,18 @@ class ChessFrame(wx.Frame):
                 self.controller.load_pgn(text)
 
     def on_key(self, event):
-        """
-        Map arrow keys, space, shift+space, F5/F6, Ctrl+Z, H to controller.
-        """
+        """Handle keyboard events using configuration-based system."""
         key = event.GetKeyCode()
         shift = event.ShiftDown()
         ctrl = event.ControlDown()
+        alt = event.AltDown()
 
-        # navigation
-        if key == wx.WXK_UP:
-            self.controller.navigate("up")
-        elif key == wx.WXK_DOWN:
-            self.controller.navigate("down")
-        elif key == wx.WXK_LEFT:
-            self.controller.navigate("left")
-        elif key == wx.WXK_RIGHT:
-            self.controller.navigate("right")
-        # select / deselect
-        elif key == ord(" ") and not shift:
-            self.controller.select()
-        elif key == ord(" ") and shift:
-            self.controller.deselect()
-        # undo
-        elif key == ord("Z") and ctrl:
-            self.controller.undo()
-        # hint
-        elif key == ord("H"):
-            self.controller.request_hint()
-        # PGN replay
-        elif key == wx.WXK_F5:
-            self.controller.replay_prev()
-        elif key == wx.WXK_F6:
-            self.controller.replay_next()
-        # toggle announce
-        elif key == ord("T") and ctrl:
-            self.controller.toggle_announce_mode()
-        # move list
-        elif key == ord("L") and ctrl:
-            self.on_show_move_list()
-        # announce last move
-        elif key == ord("]"):
-            self.controller.announce_last_move()
-        else:
-            # skip unhandled
-            event.Skip()
+        # Try to handle the key event using the configuration system
+        if self.keyboard_handler.handle_key_event(key, shift, ctrl, alt):
+            return  # Event was handled
+
+        # If not handled, skip the event
+        event.Skip()
 
     def on_announce(self, sender, text: str):
         """Speak and echo the announcement."""
@@ -508,7 +492,7 @@ class ChessFrame(wx.Frame):
             self.controller.game.new_game(config)
 
             color_name = "White" if human_color == chess.WHITE else "Black"
-            difficulty_name = difficulty.value.title()
+            difficulty_name = difficulty.title()
             message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
             self.controller.announce.send(self.controller, text=message)
 
@@ -537,7 +521,7 @@ class ChessFrame(wx.Frame):
             self.controller.game.new_game(config)
             self.controller.announce.send(
                 self.controller,
-                text=f"New computer vs computer game started. White: {white_difficulty.value}, Black: {black_difficulty.value}",
+                text=f"New computer vs computer game started. White: {white_difficulty}, Black: {black_difficulty}",
             )
 
             # Start the first computer move if it's white's turn
@@ -645,6 +629,45 @@ class ChessFrame(wx.Frame):
                 text=f"Navigated to position after move {target_position + 1}",
             )
 
+    def _load_keyboard_config(self) -> GameKeyboardConfig:
+        """Load keyboard configuration from JSON file or use default."""
+        config_path = (
+            Path(__file__).parent.parent.parent / "config" / "keyboard_config.json"
+        )
+
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    json_data = f.read()
+                return load_keyboard_config_from_json(json_data)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load keyboard config from {config_path}: {e}"
+                )
+
+        # Return default configuration
+        return GameKeyboardConfig()
+
+    def _create_keyboard_handler(self) -> KeyboardCommandHandler:
+        """Create keyboard command handler with action mappings."""
+        action_handlers = {
+            KeyAction.NAVIGATE_UP: lambda: self.controller.navigate("up"),
+            KeyAction.NAVIGATE_DOWN: lambda: self.controller.navigate("down"),
+            KeyAction.NAVIGATE_LEFT: lambda: self.controller.navigate("left"),
+            KeyAction.NAVIGATE_RIGHT: lambda: self.controller.navigate("right"),
+            KeyAction.SELECT: lambda: self.controller.select(),
+            KeyAction.DESELECT: lambda: self.controller.deselect(),
+            KeyAction.UNDO: lambda: self.controller.undo(),
+            KeyAction.REQUEST_HINT: lambda: self.controller.request_hint(),
+            KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
+            KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
+            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: self.controller.toggle_announce_mode(),
+            KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
+            KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
+        }
+
+        return KeyboardCommandHandler(self.keyboard_config, action_handlers)
+
 
 def main():
     # Initialize logging
@@ -668,7 +691,7 @@ def main():
         engine.start()
         game = Game(engine)
         logger.info("Engine initialized successfully")
-    except RuntimeError as e:
+    except (EngineError, EngineNotFoundError, EngineInitializationError) as e:
         logger.warning(f"Engine initialization failed: {e}")
         # Fall back to no engine mode
         game = Game()

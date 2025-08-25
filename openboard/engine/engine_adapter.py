@@ -1,14 +1,126 @@
 import asyncio
 import logging
 import threading
-from typing import Union, Dict, Any, Optional
+from typing import Any, Self, AsyncIterator
 from concurrent.futures import Future
+from contextlib import asynccontextmanager
 import weakref
 
 import chess
 import chess.engine
 
 from .engine_detection import EngineDetector
+from ..exceptions import (
+    EngineNotFoundError,
+    EngineInitializationError,
+)
+
+
+class AsyncLoopManager:
+    """
+    Simplified async event loop manager for GUI applications.
+    Provides a clean interface for running async operations from sync GUI code.
+    """
+
+    def __init__(self):
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._shutdown_event = threading.Event()
+        self._loop_ready = threading.Event()
+        self._lock = threading.RLock()
+        self._logger = logging.getLogger(f"{__name__}.AsyncLoopManager")
+
+    def ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """Ensure event loop is running and return it."""
+        with self._lock:
+            if self._loop and not self._loop.is_closed():
+                return self._loop
+
+            self._start_background_loop()
+            if not self._loop_ready.wait(timeout=5.0):
+                raise EngineInitializationError("Failed to start background async loop")
+
+            if not self._loop:
+                raise EngineInitializationError("Background loop failed to initialize")
+
+            return self._loop
+
+    def _start_background_loop(self):
+        """Start asyncio loop in background thread."""
+        if self._thread and self._thread.is_alive():
+            return
+
+        self._loop_ready.clear()
+        self._shutdown_event.clear()
+
+        def run_loop():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                with self._lock:
+                    self._loop = loop
+
+                self._loop_ready.set()
+
+                # Set up shutdown monitoring
+                async def shutdown_monitor():
+                    while not self._shutdown_event.is_set():
+                        await asyncio.sleep(0.1)
+                    loop.stop()
+
+                # Schedule the shutdown monitor
+                loop.create_task(shutdown_monitor())
+
+                # Run event loop
+                loop.run_forever()
+
+            except Exception as e:
+                self._logger.error(f"Background loop error: {e}")
+            finally:
+                with self._lock:
+                    if self._loop and not self._loop.is_closed():
+                        self._loop.close()
+                    self._loop = None
+
+        self._thread = threading.Thread(target=run_loop, daemon=True)
+        self._thread.start()
+
+    def run_async(self, coro, timeout: float = 30.0):
+        """Run coroutine in background loop and return result."""
+        loop = self.ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=timeout)
+
+    def run_async_with_callback(self, coro, callback=None, timeout: float = 30.0):
+        """Run coroutine in background loop and call callback with result."""
+        loop = self.ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+
+        def handle_result(f):
+            try:
+                if callback:
+                    if f.exception():
+                        callback(f.exception())
+                    else:
+                        callback(f.result())
+            except Exception as e:
+                self._logger.error(f"Callback error: {e}")
+
+        future.add_done_callback(handle_result)
+        return future
+
+    def stop(self):
+        """Stop the background loop."""
+        with self._lock:
+            self._shutdown_event.set()
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+
+# Global shared loop manager for simplified integration
+_loop_manager = AsyncLoopManager()
 
 
 class CallbackExecutor:
@@ -66,9 +178,9 @@ class EngineAdapter:
 
     def __init__(
         self,
-        engine_path: Optional[str] = None,
-        options: Optional[Dict[str, Any]] = None,
-        callback_executor: Optional[CallbackExecutor] = None,
+        engine_path: str | None = None,
+        options: dict[str, Any] | None = None,
+        callback_executor: CallbackExecutor | None = None,
     ):
         """
         :param engine_path: path to the UCI engine executable. If None, will auto-detect.
@@ -89,10 +201,10 @@ class EngineAdapter:
 
         self.engine_path = engine_path
         self.options = options or {}
-        self._engine: Optional[chess.engine.Protocol] = None
-        self._transport: Optional[asyncio.SubprocessTransport] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._engine_thread: Optional[threading.Thread] = None
+        self._engine: chess.engine.Protocol | None = None
+        self._transport: asyncio.SubprocessTransport | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._engine_thread: threading.Thread | None = None
         self._logger = logging.getLogger(__name__)
 
         # Thread synchronization
@@ -248,19 +360,19 @@ class EngineAdapter:
                     )
 
         except FileNotFoundError:
-            raise RuntimeError(f"Engine executable not found: {self.engine_path}")
+            raise EngineNotFoundError(f"Engine at {self.engine_path}")
         except PermissionError:
             raise RuntimeError(
                 f"Permission denied executing engine: {self.engine_path}"
             )
         except chess.engine.EngineTerminatedError as e:
-            raise RuntimeError(f"Engine terminated during startup: {e}")
+            raise EngineInitializationError(f"Engine terminated during startup: {e}")
 
         except Exception as e:
             self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")
             raise RuntimeError(f"Engine startup failed: {e}") from e
 
-    def _validate_board_state(self, position: Union[str, chess.Board]) -> chess.Board:
+    def _validate_board_state(self, position: str | chess.Board) -> chess.Board:
         """Validate and convert position to chess.Board."""
         if isinstance(position, str):
             try:
@@ -275,7 +387,7 @@ class EngineAdapter:
             )
 
     def _create_engine_limit(
-        self, time_ms: int, depth: Optional[int]
+        self, time_ms: int, depth: int | None
     ) -> chess.engine.Limit:
         """Create engine search limit from time and depth parameters."""
         if depth is not None:
@@ -326,7 +438,7 @@ class EngineAdapter:
             except Exception as e:
                 # Cleanup warnings are expected during shutdown
                 self._logger.debug(f"Event loop cleanup warning: {e}")
-                pass  # Continue with shutdown
+                # Continue with shutdown - don't re-raise cleanup exceptions
 
         # Phase 3: Stop event loop after all cleanup is done
         if self._loop and not self._loop.is_closed():
@@ -406,6 +518,49 @@ class EngineAdapter:
         except Exception:
             pass  # Ignore any errors during final cleanup
 
+    async def _safe_cleanup(self) -> None:
+        """
+        Safe cleanup method that can be called during exceptions.
+        Performs minimal cleanup without raising additional exceptions.
+        """
+        try:
+            with self._state_lock:
+                self._shutdown_event.set()
+
+            # Cancel any active futures
+            with self._state_lock:
+                for future in list(self._active_futures):
+                    if not future.done():
+                        try:
+                            future.cancel()
+                        except Exception:
+                            pass
+
+            # Basic engine cleanup
+            if self._engine:
+                try:
+                    await asyncio.wait_for(self._engine.quit(), timeout=1.0)
+                except Exception:
+                    pass  # Ignore quit errors during emergency cleanup
+
+            # Basic transport cleanup
+            if self._transport and not self._transport.is_closing():
+                try:
+                    self._transport.close()
+                    self._transport.terminate()
+                except Exception:
+                    pass  # Ignore transport errors during emergency cleanup
+
+            # Final small delay for I/O completion
+            try:
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
+
+        except Exception as e:
+            # Log but never raise during safe cleanup
+            self._logger.debug(f"Error in safe cleanup: {e}")
+
     def is_running(self) -> bool:
         """Returns True if the engine is currently running."""
         with self._state_lock:
@@ -418,9 +573,9 @@ class EngineAdapter:
 
     def get_best_move(
         self,
-        position: Union[str, chess.Board],
+        position: str | chess.Board,
         time_ms: int = 1000,
-        depth: Optional[int] = None,
+        depth: int | None = None,
     ) -> chess.Move | None:
         """
         Synchronously get the engine's best move for the given position.
@@ -462,7 +617,7 @@ class EngineAdapter:
             self._active_futures.discard(future)
 
     async def _get_best_move_async(
-        self, position: Union[str, chess.Board], time_ms: int, depth: Optional[int]
+        self, position: str | chess.Board, time_ms: int, depth: int | None
     ) -> chess.Move | None:
         """Async implementation of get_best_move with enhanced error handling."""
         board = self._validate_board_state(position)
@@ -513,9 +668,9 @@ class EngineAdapter:
 
     def get_best_move_async(
         self,
-        position: Union[str, chess.Board],
+        position: str | chess.Board,
         time_ms: int = 1000,
-        depth: Optional[int] = None,
+        depth: int | None = None,
         callback=None,
     ) -> Future:
         """
@@ -559,18 +714,148 @@ class EngineAdapter:
 
         return future
 
-    # Optional context manager support
-    def __enter__(self) -> "EngineAdapter":
+    async def astart(self) -> None:
+        """
+        Async version of start() - launches engine without blocking.
+        More efficient than sync version as it doesn't need thread synchronization.
+        """
+        with self._state_lock:
+            if self._engine is not None:
+                return
+
+        # For async start, use the current running event loop directly
+        # This avoids the complexity of managing a separate background thread
+        try:
+            current_loop = asyncio.get_running_loop()
+            # Store reference to current loop for consistency
+            with self._state_lock:
+                self._loop = current_loop
+
+            # Start engine directly in current loop
+            await self._start_engine()
+            self._logger.debug("Async engine startup completed")
+
+        except Exception as e:
+            msg = f"Failed to launch engine at '{self.engine_path}': {e}"
+            self._logger.error(msg)
+            await self.astop()
+            raise RuntimeError(msg) from e
+
+    async def astop(self) -> None:
+        """
+        Async version of stop() - gracefully shuts down engine.
+        Never raises exceptions to ensure context manager robustness.
+        """
+        try:
+            with self._state_lock:
+                self._shutdown_event.set()
+
+            # Cancel active futures
+            with self._state_lock:
+                for future in list(self._active_futures):
+                    if not future.done():
+                        try:
+                            future.cancel()
+                        except Exception:
+                            pass  # Ignore cancellation errors
+
+            # Graceful engine shutdown
+            if self._engine:
+                try:
+                    await self._shutdown_engine_gracefully()
+                    self._logger.debug("Async engine shutdown completed")
+                except Exception as e:
+                    self._logger.debug(
+                        f"Async engine shutdown completed with warnings: {e}"
+                    )
+
+            # Clean up state
+            with self._state_lock:
+                self._engine = None
+                self._transport = None
+                # Note: we don't clean up _loop here as it might be external
+                self._active_futures.clear()
+
+        except Exception as e:
+            # Never raise from astop - just log
+            self._logger.debug(f"Error during async stop: {e}")
+
+    async def get_best_move_native(
+        self,
+        position: str | chess.Board,
+        time_ms: int = 1000,
+        depth: int | None = None,
+    ) -> chess.Move | None:
+        """
+        Native async version of get_best_move - no thread synchronization overhead.
+        Use this when already in an async context for best performance.
+
+        :param position: either a FEN string or a chess.Board instance.
+        :param time_ms: think time in milliseconds.
+        :param depth: search depth limit (optional, overrides time if provided).
+        :return: a chess.Move instance.
+        :raises RuntimeError: if engine isn't started.
+        :raises ValueError: if the FEN is invalid.
+        :raises chess.engine.EngineTerminatedError: on engine failure.
+        """
+        if not self.is_running():
+            raise RuntimeError("Engine is not running; call astart() first.")
+
+        return await self._get_best_move_async(position, time_ms, depth)
+
+    # Context manager support (synchronous)
+    def __enter__(self) -> Self:
         self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.stop()
 
+    # Robust async context manager support
+    async def __aenter__(self) -> Self:
+        """
+        Async context manager entry - starts engine with robust error handling.
+        """
+        try:
+            await self.astart()
+            return self
+        except BaseException:
+            # If startup fails, still attempt cleanup to prevent resource leaks
+            try:
+                await self._safe_cleanup()
+            except Exception as cleanup_error:
+                self._logger.debug(f"Cleanup during startup failure: {cleanup_error}")
+            raise
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """
+        Async context manager exit - stops engine gracefully.
+        Never raises exceptions to ensure robust cleanup.
+        """
+        try:
+            await self.astop()
+        except Exception as cleanup_error:
+            self._logger.debug(f"Error during context cleanup: {cleanup_error}")
+            # Don't raise cleanup errors - let original exception propagate
+
+    @asynccontextmanager
+    async def managed_engine(self) -> AsyncIterator[Self]:
+        """
+        Convenience alias for the main context manager.
+        Provides a cleaner API name for users.
+
+        Usage:
+            adapter = EngineAdapter("/path/to/stockfish")
+            async with adapter.managed_engine() as engine:
+                move = await engine.get_best_move_native("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        """
+        async with self as engine:
+            yield engine
+
     @classmethod
     def create_with_auto_detection(
-        cls, engine_name: str = "stockfish", options: Optional[Dict[str, Any]] = None
-    ) -> "EngineAdapter":
+        cls, engine_name: str = "stockfish", options: dict[str, Any] | None = None
+    ) -> Self:
         """
         Create an EngineAdapter with automatic engine detection.
 
@@ -592,6 +877,49 @@ class EngineAdapter:
             )
 
         return cls(engine_path, options)
+
+    @classmethod
+    @asynccontextmanager
+    async def create_managed(
+        cls,
+        engine_name: str = "stockfish",
+        options: dict[str, Any] | None = None,
+        engine_path: str | None = None,
+    ):
+        """
+        Modern factory method that creates and manages an engine using async context manager.
+
+        Usage:
+            async with EngineAdapter.create_managed("stockfish", {"Threads": 4}) as adapter:
+                move = await adapter.get_best_move_native(board)
+                # Engine is automatically cleaned up when exiting the context
+
+        :param engine_name: Name of the engine to detect (default: "stockfish")
+        :param options: Dictionary of UCI options
+        :param engine_path: Explicit path to engine (overrides auto-detection)
+        :return: Async context manager yielding EngineAdapter
+        :raises RuntimeError: If the engine cannot be found
+        """
+        if engine_path is None:
+            detector = EngineDetector()
+            engine_path = detector.find_engine(engine_name)
+
+            if engine_path is None:
+                instructions = detector.get_installation_instructions(engine_name)
+                system = detector.system
+                instruction_text = instructions.get(
+                    system, instructions.get("generic", "")
+                )
+                raise RuntimeError(
+                    f"No {engine_name} engine found on system. Please install {engine_name}:\n\n{instruction_text}"
+                )
+
+        adapter = cls(engine_path, options)
+        await adapter.astart()
+        try:
+            yield adapter
+        finally:
+            await adapter.astop()
 
     async def _ping_engine(self) -> bool:
         """Check if engine is responsive."""
@@ -619,3 +947,88 @@ class EngineAdapter:
             return future.result(timeout=2.0)
         except Exception:
             return False
+
+    # Simplified integration methods for GUI applications
+    def start_simple(self) -> None:
+        """
+        Simplified start method using shared background loop.
+        Better for GUI applications that don't want to manage their own asyncio event loop.
+        """
+        if self.is_running():
+            return
+
+        # Use the existing proven start() method
+        self.start()
+        self._logger.info("Engine started using simplified mode")
+
+    async def _start_engine_simple(self) -> None:
+        """Start engine using the shared background loop."""
+        self._logger.info(f"Starting engine in simple mode: {self.engine_path}")
+
+        try:
+            self._transport, self._engine = await asyncio.wait_for(
+                chess.engine.popen_uci(self.engine_path), timeout=10.0
+            )
+
+            self._logger.info(
+                f"Engine started successfully: {self._engine.id if hasattr(self._engine, 'id') else 'Unknown'}"
+            )
+
+            # Configure options
+            for name, val in self.options.items():
+                try:
+                    await self._engine.configure({name: val})
+                    self._logger.debug(f"Successfully set {name}={val}")
+                except Exception as e:
+                    self._logger.warning(
+                        f"Could not set engine option {name}={val}: {e}"
+                    )
+
+        except Exception as e:
+            self._logger.error(f"Failed to start engine: {e}")
+            raise RuntimeError(f"Engine startup failed: {e}") from e
+
+    def stop_simple(self) -> None:
+        """
+        Simplified stop method for GUI applications.
+        Uses the existing proven stop() method.
+        """
+        if not self.is_running():
+            return
+
+        # Use the existing proven stop() method
+        self.stop()
+        self._logger.info("Engine stopped using simplified mode")
+
+    def get_best_move_simple(
+        self,
+        position: str | chess.Board,
+        time_ms: int = 1000,
+        depth: int | None = None,
+    ) -> chess.Move | None:
+        """
+        Simplified synchronous get_best_move - convenience alias for get_best_move.
+        Provides a cleaner API name for GUI applications.
+        """
+        if not self.is_running():
+            raise RuntimeError("Engine is not running; call start_simple() first.")
+
+        # Use the existing proven get_best_move method
+        return self.get_best_move(position, time_ms, depth)
+
+    def get_best_move_simple_async(
+        self,
+        position: str | chess.Board,
+        time_ms: int = 1000,
+        depth: int | None = None,
+        callback=None,
+    ):
+        """
+        Simplified async get_best_move with callback - convenience alias for get_best_move_async.
+        Perfect for GUI applications using wx.CallAfter patterns.
+        """
+        if not self.is_running():
+            raise RuntimeError("Engine is not running; call start_simple() first.")
+
+        # Use the existing proven get_best_move_async method
+        return self.get_best_move_async(position, time_ms, depth, callback)

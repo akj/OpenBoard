@@ -1,0 +1,95 @@
+{
+  "bindings": [
+    {
+      "key": "wx.WXK_UP",
+      "action": "navigate_up",
+      "modifiers": "none",
+      "description": "Navigate up",
+      "enabled": true
+    },
+    {
+      "key": "wx.WXK_DOWN", 
+      "action": "navigate_down",
+      "modifiers": "none",
+      "description": "Navigate down",
+      "enabled": true
+    },
+    {
+      "key": "wx.WXK_LEFT",
+      "action": "navigate_left",
+      "modifiers": "none", 
+      "description": "Navigate left",
+      "enabled": true
+    },
+    {
+      "key": "wx.WXK_RIGHT",
+      "action": "navigate_right",
+      "modifiers": "none",
+      "description": "Navigate right",
+      "enabled": true
+    },
+    {
+      "key": "ord(' ')",
+      "action": "select",
+      "modifiers": "none",
+      "description": "Select square",
+      "enabled": true
+    },
+    {
+      "key": "ord(' ')",
+      "action": "deselect",
+      "modifiers": "shift",
+      "description": "Deselect square",
+      "enabled": true
+    },
+    {
+      "key": "ord('Z')",
+      "action": "undo",
+      "modifiers": "ctrl",
+      "description": "Undo last move",
+      "enabled": true
+    },
+    {
+      "key": "ord('H')",
+      "action": "request_hint",
+      "modifiers": "none",
+      "description": "Request hint",
+      "enabled": true
+    },
+    {
+      "key": "wx.WXK_F5",
+      "action": "replay_prev",
+      "modifiers": "none", 
+      "description": "Previous move",
+      "enabled": true
+    },
+    {
+      "key": "wx.WXK_F6",
+      "action": "replay_next",
+      "modifiers": "none",
+      "description": "Next move",
+      "enabled": true
+    },
+    {
+      "key": "ord('T')",
+      "action": "toggle_announce_mode",
+      "modifiers": "ctrl",
+      "description": "Toggle announce mode",
+      "enabled": true
+    },
+    {
+      "key": "ord('L')",
+      "action": "show_move_list",
+      "modifiers": "ctrl",
+      "description": "Show move list",
+      "enabled": true
+    },
+    {
+      "key": "ord(']')",
+      "action": "announce_last_move",
+      "modifiers": "none",
+      "description": "Announce last move", 
+      "enabled": true
+    }
+  ]
+}

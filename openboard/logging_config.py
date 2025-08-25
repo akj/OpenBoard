@@ -7,12 +7,11 @@ This module provides centralized logging setup for the OpenBoard chess applicati
 import logging
 import logging.handlers
 from pathlib import Path
-from typing import Optional
 
 
 def setup_logging(
     log_level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     console_output: bool = True,
 ) -> None:
     """

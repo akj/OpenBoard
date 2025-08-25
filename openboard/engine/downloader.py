@@ -5,7 +5,7 @@ import logging
 import platform
 import zipfile
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Any, Callable
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
@@ -29,7 +29,7 @@ class StockfishDownloader:
         "stockfish-windows-x86-64.zip",
     ]
 
-    def __init__(self, install_dir: Optional[Path] = None):
+    def __init__(self, install_dir: Path | None = None):
         """
         Initialize the downloader.
 
@@ -48,7 +48,7 @@ class StockfishDownloader:
         self.stockfish_dir.mkdir(exist_ok=True)
         self.downloads_dir.mkdir(exist_ok=True)
 
-    def get_latest_version(self) -> Optional[str]:
+    def get_latest_version(self) -> str | None:
         """
         Get the latest Stockfish version from GitHub releases.
 
@@ -67,7 +67,7 @@ class StockfishDownloader:
             logger.error(f"Failed to fetch latest version: {e}")
             return None
 
-    def get_installed_version(self) -> Optional[str]:
+    def get_installed_version(self) -> str | None:
         """
         Get the currently installed Stockfish version.
 
@@ -83,7 +83,7 @@ class StockfishDownloader:
 
         return None
 
-    def find_windows_binary_url(self, release_data: Dict[str, Any]) -> Optional[str]:
+    def find_windows_binary_url(self, release_data: dict[str, Any]) -> str | None:
         """
         Find the best Windows binary download URL from release assets.
 
@@ -107,7 +107,7 @@ class StockfishDownloader:
         self,
         url: str,
         dest_path: Path,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> bool:
         """
         Download a file with optional progress reporting.
@@ -171,7 +171,7 @@ class StockfishDownloader:
             logger.error(f"Failed to extract {zip_path}: {e}")
             return False
 
-    def find_stockfish_executable(self, extract_dir: Path) -> Optional[Path]:
+    def find_stockfish_executable(self, extract_dir: Path) -> Path | None:
         """
         Find the Stockfish executable in the extracted directory.
 
@@ -215,7 +215,7 @@ class StockfishDownloader:
         return None
 
     def download_and_install_latest(
-        self, progress_callback: Optional[Callable[[str, int, int], None]] = None
+        self, progress_callback: Callable[[str, int, int], None] | None = None
     ) -> bool:
         """
         Download and install the latest Stockfish version.
@@ -328,7 +328,7 @@ class StockfishDownloader:
             update_progress(f"Installation failed: {e}")
             return False
 
-    def get_installed_executable_path(self) -> Optional[Path]:
+    def get_installed_executable_path(self) -> Path | None:
         """
         Get the path to the installed Stockfish executable.
 

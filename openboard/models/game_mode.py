@@ -1,12 +1,13 @@
 """Game mode definitions and configuration."""
 
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional
+from enum import StrEnum
+from dataclasses import dataclass, field
 import chess
 
+from ..exceptions import GameModeError
 
-class GameMode(Enum):
+
+class GameMode(StrEnum):
     """Supported game modes."""
 
     HUMAN_VS_HUMAN = "human_vs_human"
@@ -14,7 +15,7 @@ class GameMode(Enum):
     COMPUTER_VS_COMPUTER = "computer_vs_computer"
 
 
-class DifficultyLevel(Enum):
+class DifficultyLevel(StrEnum):
     """Difficulty levels for computer opponent."""
 
     BEGINNER = "beginner"
@@ -29,8 +30,19 @@ class DifficultyConfig:
 
     name: str
     description: str
-    time_ms: int  # Thinking time in milliseconds
-    depth: Optional[int] = None  # Search depth (None for time-based only)
+    time_ms: int = field(
+        metadata={"min": 1, "max": 30000}
+    )  # Thinking time in milliseconds
+    depth: int | None = field(
+        default=None, metadata={"min": 1, "max": 20}
+    )  # Search depth (None for time-based only)
+
+    def __post_init__(self):
+        """Validate configuration values."""
+        if self.time_ms < 1 or self.time_ms > 30000:
+            raise ValueError(f"time_ms must be between 1 and 30000, got {self.time_ms}")
+        if self.depth is not None and (self.depth < 1 or self.depth > 20):
+            raise ValueError(f"depth must be between 1 and 20, got {self.depth}")
 
 
 @dataclass
@@ -39,17 +51,26 @@ class GameConfig:
 
     mode: GameMode
     human_color: chess.Color = chess.WHITE
-    difficulty: Optional[DifficultyLevel] = None
-    white_difficulty: Optional[DifficultyLevel] = None
-    black_difficulty: Optional[DifficultyLevel] = None
+    difficulty: DifficultyLevel | None = None
+    white_difficulty: DifficultyLevel | None = None
+    black_difficulty: DifficultyLevel | None = None
+
+    @property
+    def requires_engine(self) -> bool:
+        """Check if this configuration requires an engine."""
+        return self.mode in [GameMode.HUMAN_VS_COMPUTER, GameMode.COMPUTER_VS_COMPUTER]
 
     def __post_init__(self):
         """Validate configuration."""
-        if self.mode == GameMode.HUMAN_VS_COMPUTER and self.difficulty is None:
-            raise ValueError("Difficulty must be specified for human vs computer mode")
-        elif self.mode == GameMode.COMPUTER_VS_COMPUTER:
-            if self.white_difficulty is None or self.black_difficulty is None:
-                raise ValueError(
+        match self.mode:
+            case GameMode.HUMAN_VS_COMPUTER if self.difficulty is None:
+                raise GameModeError(
+                    "Difficulty must be specified for human vs computer mode"
+                )
+            case GameMode.COMPUTER_VS_COMPUTER if (
+                self.white_difficulty is None or self.black_difficulty is None
+            ):
+                raise GameModeError(
                     "Both white_difficulty and black_difficulty must be specified for computer vs computer mode"
                 )
 

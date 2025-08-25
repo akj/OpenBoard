@@ -2,11 +2,11 @@ import chess
 import chess.pgn
 from io import StringIO
 from blinker import Signal
-from typing import Optional, List
 
 from ..models.game import Game
 from ..models.game_mode import GameMode
 from ..logging_config import get_logger
+from ..exceptions import IllegalMoveError, EngineError
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,7 @@ class ChessController:
     hint_ready = Signal()  # args: move (chess.Move)
     computer_thinking = Signal()  # args: thinking (bool)
 
-    def __init__(self, game: Game, config: Optional[dict] = None):
+    def __init__(self, game: Game, config: dict | None = None):
         """
         :param game: the Game model
         :param config: e.g. {"announce_mode": "verbose" or "brief"}
@@ -52,16 +52,16 @@ class ChessController:
 
         # board navigation & selection
         self.current_square: int = chess.A1  # 0
-        self.selected_square: Optional[int] = None
+        self.selected_square: int | None = None
 
         # for PGN replay
         self._in_replay: bool = False
-        self._replay_moves: List[chess.Move] = []
+        self._replay_moves: list[chess.Move] = []
         self._replay_index: int = 0
 
         # to help generate captures, we stash the pre‐move board when
         # apply_move is called by the controller:
-        self._pending_old_board: Optional[chess.Board] = None
+        self._pending_old_board: chess.Board | None = None
 
         # computer move handling
         self._computer_thinking: bool = False
@@ -112,7 +112,9 @@ class ChessController:
         if status != "In progress":
             self.announce.send(self, text=f"Game over: {status}")
 
-    def _on_hint_ready(self, sender, move: chess.Move = None, error: str = None):
+    def _on_hint_ready(
+        self, sender, move: chess.Move | None = None, error: str | None = None
+    ):
         """Forward engine hints to the view."""
         if error:
             self.announce.send(self, text=f"Hint failed: {error}")
@@ -120,7 +122,7 @@ class ChessController:
             self.hint_ready.send(self, move=move)
 
     def _on_computer_move_ready(
-        self, sender, move: chess.Move = None, error: str = None
+        self, sender, move: chess.Move | None = None, error: str | None = None
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
@@ -177,6 +179,10 @@ class ChessController:
             return
 
         if self.selected_square is None:
+            # Validate that we can select this square
+            if not self._can_select_square(self.current_square):
+                return
+
             # pick up a piece
             self.selected_square = self.current_square
             self.selection_changed.send(self, selected_square=self.current_square)
@@ -219,7 +225,7 @@ class ChessController:
         """
         try:
             self.game.request_hint_async()
-        except RuntimeError as e:
+        except EngineError as e:
             self.announce.send(self, text=str(e))
 
     def load_fen(self, fen: str):
@@ -327,7 +333,7 @@ class ChessController:
         self._pending_old_board = self.game.board_state.board
         try:
             self.game.apply_move(src, dst)
-        except ValueError as e:
+        except IllegalMoveError as e:
             self.announce.send(self, text=str(e))
         finally:
             # clear stash; _on_model_move will read it if present
@@ -372,7 +378,7 @@ class ChessController:
             return self._format_verbose_announcement(move, board, old_board)
 
     def _format_brief_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
     ) -> str:
         """Format brief move announcement: 'e2 e4, check'"""
         src_name = chess.square_name(move.from_square)
@@ -380,17 +386,18 @@ class ChessController:
         announcement = f"{src_name} {dst_name}"
 
         # Add game state suffixes
-        if board.is_checkmate():
-            announcement += ", checkmate"
-        elif board.is_check():
-            announcement += ", check"
-        elif board.is_stalemate():
-            announcement += ", stalemate"
+        match (board.is_checkmate(), board.is_check(), board.is_stalemate()):
+            case (True, _, _):
+                announcement += ", checkmate"
+            case (False, True, _):
+                announcement += ", check"
+            case (False, False, True):
+                announcement += ", stalemate"
 
         return announcement
 
     def _format_verbose_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: Optional[chess.Board]
+        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
     ) -> str:
         """Format verbose move announcement with full details."""
         src, dst = move.from_square, move.to_square
@@ -408,60 +415,90 @@ class ChessController:
         # Build base announcement
         announcement_parts = []
 
-        # Special move types
-        if old_board and old_board.is_castling(move):
-            if move.to_square > move.from_square:  # Kingside
-                announcement_parts.append(f"{color} castles kingside")
-            else:  # Queenside
-                announcement_parts.append(f"{color} castles queenside")
-        elif old_board and old_board.is_en_passant(move):
-            announcement_parts.append(f"{color} pawn takes en passant at {fname_dst}")
-        elif move.promotion:
-            promoted_piece = PIECE_NAMES[move.promotion]
-            if old_board and old_board.is_capture(move):
-                captured_piece = old_board.piece_at(dst)
-                if captured_piece:
-                    captured_name = PIECE_NAMES[captured_piece.piece_type]
-                    announcement_parts.append(
-                        f"{color} pawn takes {captured_name}, promotes to {promoted_piece}"
-                    )
-                else:
+        # Special move types - using pattern matching for cleaner logic
+        is_castling = old_board and old_board.is_castling(move)
+        is_en_passant = old_board and old_board.is_en_passant(move)
+        is_capture = old_board and old_board.is_capture(move)
+
+        match (is_castling, is_en_passant, bool(move.promotion), is_capture):
+            case (True, _, _, _):
+                # Castling move
+                if move.to_square > move.from_square:  # Kingside
+                    announcement_parts.append(f"{color} castles kingside")
+                else:  # Queenside
+                    announcement_parts.append(f"{color} castles queenside")
+
+            case (_, True, _, _):
+                # En passant capture
+                announcement_parts.append(
+                    f"{color} pawn takes en passant at {fname_dst}"
+                )
+
+            case (_, _, True, True):
+                # Promotion with capture
+                if move.promotion:
+                    promoted_piece = PIECE_NAMES[move.promotion]
+                    captured_piece = old_board.piece_at(dst) if old_board else None
+                    if captured_piece:
+                        captured_name = PIECE_NAMES[captured_piece.piece_type]
+                        announcement_parts.append(
+                            f"{color} pawn takes {captured_name}, promotes to {promoted_piece}"
+                        )
+                    else:
+                        announcement_parts.append(
+                            f"{color} pawn promotes to {promoted_piece}"
+                        )
+
+            case (_, _, True, False):
+                # Promotion without capture
+                if move.promotion:
+                    promoted_piece = PIECE_NAMES[move.promotion]
                     announcement_parts.append(
                         f"{color} pawn promotes to {promoted_piece}"
                     )
-            else:
-                announcement_parts.append(f"{color} pawn promotes to {promoted_piece}")
-        elif old_board and old_board.is_capture(move):
-            # Regular capture
-            captured_piece = old_board.piece_at(dst)
-            if captured_piece:
-                captured_name = PIECE_NAMES[captured_piece.piece_type]
-                announcement_parts.append(
-                    f"{color} {piece_name} takes {captured_name} at {fname_dst}"
-                )
-            else:
-                announcement_parts.append(f"{color} {piece_name} takes at {fname_dst}")
-        else:
-            # Regular move
-            announcement_parts.append(
-                f"{color} {piece_name} from {fname_src} to {fname_dst}"
-            )
 
-        # Add game state information
-        if board.is_checkmate():
-            winner = "White" if board.turn == chess.BLACK else "Black"
-            announcement_parts.append(f"Checkmate, {winner} wins")
-        elif board.is_check():
-            checked_color = "White" if board.turn == chess.WHITE else "Black"
-            announcement_parts.append(f"{checked_color} king in check")
-        elif board.is_stalemate():
-            announcement_parts.append("Stalemate, game drawn")
-        elif board.is_insufficient_material():
-            announcement_parts.append("Draw by insufficient material")
-        elif board.can_claim_fifty_moves():
-            announcement_parts.append("Draw available by fifty-move rule")
-        elif board.can_claim_threefold_repetition():
-            announcement_parts.append("Draw available by threefold repetition")
+            case (_, _, False, True):
+                # Regular capture
+                captured_piece = old_board.piece_at(dst) if old_board else None
+                if captured_piece:
+                    captured_name = PIECE_NAMES[captured_piece.piece_type]
+                    announcement_parts.append(
+                        f"{color} {piece_name} takes {captured_name} at {fname_dst}"
+                    )
+                else:
+                    announcement_parts.append(
+                        f"{color} {piece_name} takes at {fname_dst}"
+                    )
+
+            case _:
+                # Regular move
+                announcement_parts.append(
+                    f"{color} {piece_name} from {fname_src} to {fname_dst}"
+                )
+
+        # Add game state information using pattern matching
+        match (
+            board.is_checkmate(),
+            board.is_check(),
+            board.is_stalemate(),
+            board.is_insufficient_material(),
+            board.can_claim_fifty_moves(),
+            board.can_claim_threefold_repetition(),
+        ):
+            case (True, _, _, _, _, _):
+                winner = "White" if board.turn == chess.BLACK else "Black"
+                announcement_parts.append(f"Checkmate, {winner} wins")
+            case (False, True, _, _, _, _):
+                checked_color = "White" if board.turn == chess.WHITE else "Black"
+                announcement_parts.append(f"{checked_color} king in check")
+            case (False, False, True, _, _, _):
+                announcement_parts.append("Stalemate, game drawn")
+            case (False, False, False, True, _, _):
+                announcement_parts.append("Draw by insufficient material")
+            case (False, False, False, False, True, _):
+                announcement_parts.append("Draw available by fifty-move rule")
+            case (False, False, False, False, False, True):
+                announcement_parts.append("Draw available by threefold repetition")
 
         return ". ".join(announcement_parts)
 
@@ -490,34 +527,66 @@ class ChessController:
 
     def _announce_initial_game_state(self):
         """Announce the initial game state with mode context and current square."""
-        mode = self.game.config.mode
+        # Generate mode announcement using pattern matching
+        mode_text: str = "Chess game"  # Default fallback
+        match self.game.config.mode:
+            case GameMode.HUMAN_VS_HUMAN:
+                mode_text = "Human vs Human"
 
-        if mode == GameMode.HUMAN_VS_HUMAN:
-            mode_text = "Human vs Human"
-        elif mode == GameMode.HUMAN_VS_COMPUTER:
-            difficulty = self.game.config.difficulty
-            if difficulty:
-                if self.game.config.human_color == chess.WHITE:
-                    mode_text = f"You are White vs Computer ({difficulty.value})"
+            case GameMode.HUMAN_VS_COMPUTER:
+                difficulty = self.game.config.difficulty
+                if difficulty:
+                    match self.game.config.human_color:
+                        case chess.WHITE:
+                            mode_text = f"You are White vs Computer ({difficulty})"
+                        case chess.BLACK:
+                            mode_text = f"You are Black vs Computer ({difficulty})"
                 else:
-                    mode_text = f"You are Black vs Computer ({difficulty.value})"
-            else:
-                mode_text = "Human vs Computer"
-        elif mode == GameMode.COMPUTER_VS_COMPUTER:
-            white_diff = self.game.config.white_difficulty
-            black_diff = self.game.config.black_difficulty
-            if white_diff and black_diff:
-                mode_text = f"Computer vs Computer (White: {white_diff.value}, Black: {black_diff.value})"
-            else:
-                mode_text = "Computer vs Computer"
-        else:
-            mode_text = "Chess game"
+                    mode_text = "Human vs Computer"
+
+            case GameMode.COMPUTER_VS_COMPUTER:
+                white_diff = self.game.config.white_difficulty
+                black_diff = self.game.config.black_difficulty
+                if white_diff and black_diff:
+                    mode_text = f"Computer vs Computer (White: {white_diff}, Black: {black_diff})"
+                else:
+                    mode_text = "Computer vs Computer"
+
+            case _:
+                mode_text = "Chess game"
 
         self.announce.send(self, text=mode_text)
 
         # Announce just the current square name
         square_name = chess.square_name(self.current_square)
         self.announce.send(self, text=square_name)
+
+    def _can_select_square(self, square: int) -> bool:
+        """
+        Validate that a square can be selected as a source square.
+        Returns False for empty squares or opponent's pieces.
+        """
+        board = self.game.board_state.board
+        piece = board.piece_at(square)
+        square_name = chess.square_name(square)
+
+        # Can't select empty squares
+        if piece is None:
+            self.announce.send(self, text=f"No piece at {square_name}")
+            return False
+
+        # Can't select opponent's pieces
+        if piece.color != board.turn:
+            color_name = "White" if piece.color else "Black"
+            piece_name = PIECE_NAMES[piece.piece_type]
+            turn_name = "White" if board.turn else "Black"
+            self.announce.send(
+                self,
+                text=f"Cannot select {color_name} {piece_name}, it's {turn_name}'s turn",
+            )
+            return False
+
+        return True
 
     def _get_square_description(self, square: int) -> str:
         """Get a concise description of what's at a square."""

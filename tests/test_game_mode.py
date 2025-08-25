@@ -5,6 +5,7 @@ import chess
 from unittest.mock import Mock
 
 from openboard.models.game import Game
+from openboard.exceptions import GameModeError, EngineError
 from openboard.models.game_mode import (
     GameMode,
     GameConfig,
@@ -53,7 +54,7 @@ def test_game_config_human_vs_computer():
 def test_game_config_validation():
     """Test GameConfig validation."""
     # Should raise error if human vs computer without difficulty
-    with pytest.raises(ValueError, match="Difficulty must be specified"):
+    with pytest.raises(GameModeError, match="Difficulty must be specified"):
         GameConfig(mode=GameMode.HUMAN_VS_COMPUTER)
 
 
@@ -138,7 +139,7 @@ def test_game_request_computer_move_no_engine():
     )
     game = Game(config=config)  # No engine
 
-    with pytest.raises(RuntimeError, match="No chess engine available"):
+    with pytest.raises(EngineError, match="No chess engine available"):
         game.request_computer_move()
 
 
@@ -147,7 +148,7 @@ def test_game_request_computer_move_wrong_mode():
     config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
     game = Game(config=config)
 
-    with pytest.raises(RuntimeError, match="Not in a computer vs mode"):
+    with pytest.raises(GameModeError, match="Not in a computer vs mode"):
         game.request_computer_move()
 
 
@@ -215,7 +216,8 @@ def test_computer_vs_computer_config_validation():
     """Test computer vs computer config validation."""
     # Missing white difficulty
     with pytest.raises(
-        ValueError, match="Both white_difficulty and black_difficulty must be specified"
+        GameModeError,
+        match="Both white_difficulty and black_difficulty must be specified",
     ):
         GameConfig(
             mode=GameMode.COMPUTER_VS_COMPUTER,
@@ -224,7 +226,8 @@ def test_computer_vs_computer_config_validation():
 
     # Missing black difficulty
     with pytest.raises(
-        ValueError, match="Both white_difficulty and black_difficulty must be specified"
+        GameModeError,
+        match="Both white_difficulty and black_difficulty must be specified",
     ):
         GameConfig(
             mode=GameMode.COMPUTER_VS_COMPUTER,
