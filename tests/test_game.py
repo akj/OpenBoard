@@ -2,6 +2,7 @@ import pytest
 import chess
 from openboard.models.game import Game
 from openboard.models.board_state import BoardState
+from openboard.exceptions import IllegalMoveError, EngineError
 
 
 class DummyEngineAdapter:
@@ -28,7 +29,7 @@ def test_boardstate_make_and_undo_move():
 def test_boardstate_illegal_move():
     bs = BoardState()
     move = chess.Move.from_uci("e2e5")  # illegal in starting position
-    with pytest.raises(ValueError):
+    with pytest.raises(IllegalMoveError):
         bs.make_move(move)
 
 
@@ -66,7 +67,7 @@ def test_game_request_hint_emits_signal(monkeypatch):
 
 def test_game_request_hint_no_engine():
     game = Game(engine_adapter=None)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(EngineError):
         game.request_hint()
 
 

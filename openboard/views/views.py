@@ -10,6 +10,7 @@ from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
 from ..config.settings import get_settings
+from ..exceptions import EngineError, EngineNotFoundError, EngineInitializationError
 from .game_dialogs import (
     show_game_setup_dialog,
     show_difficulty_info_dialog,
@@ -671,7 +672,7 @@ def main():
         engine.start()
         game = Game(engine)
         logger.info("Engine initialized successfully")
-    except RuntimeError as e:
+    except (EngineError, EngineNotFoundError, EngineInitializationError) as e:
         logger.warning(f"Engine initialization failed: {e}")
         # Fall back to no engine mode
         game = Game()

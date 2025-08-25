@@ -5,12 +5,15 @@ from typing import Any, Self
 from concurrent.futures import Future
 from contextlib import asynccontextmanager
 import weakref
-from collections.abc import AsyncGenerator
 
 import chess
 import chess.engine
 
 from .engine_detection import EngineDetector
+from ..exceptions import (
+    EngineNotFoundError,
+    EngineInitializationError,
+)
 
 
 class AsyncLoopManager:
@@ -35,10 +38,10 @@ class AsyncLoopManager:
 
             self._start_background_loop()
             if not self._loop_ready.wait(timeout=5.0):
-                raise RuntimeError("Failed to start background async loop")
+                raise EngineInitializationError("Failed to start background async loop")
 
             if not self._loop:
-                raise RuntimeError("Background loop failed to initialize")
+                raise EngineInitializationError("Background loop failed to initialize")
 
             return self._loop
 
@@ -357,13 +360,13 @@ class EngineAdapter:
                     )
 
         except FileNotFoundError:
-            raise RuntimeError(f"Engine executable not found: {self.engine_path}")
+            raise EngineNotFoundError(f"Engine at {self.engine_path}")
         except PermissionError:
             raise RuntimeError(
                 f"Permission denied executing engine: {self.engine_path}"
             )
         except chess.engine.EngineTerminatedError as e:
-            raise RuntimeError(f"Engine terminated during startup: {e}")
+            raise EngineInitializationError(f"Engine terminated during startup: {e}")
 
         except Exception as e:
             self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")

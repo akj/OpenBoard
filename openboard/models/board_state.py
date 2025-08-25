@@ -3,6 +3,8 @@ import chess.pgn
 from io import StringIO
 from blinker import Signal
 
+from ..exceptions import IllegalMoveError
+
 
 class BoardState:
     """
@@ -64,7 +66,7 @@ class BoardState:
         Emits move_made and status_changed.
         """
         if move not in self._board.legal_moves:
-            raise ValueError(f"Illegal move: {move}")
+            raise IllegalMoveError(str(move), self._board.fen())
         self._board.push(move)
         self.move_made.send(self, move=move)
         self.status_changed.send(self, status=self.game_status())

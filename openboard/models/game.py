@@ -5,6 +5,7 @@ from .board_state import BoardState
 from .game_mode import GameMode, GameConfig, get_difficulty_config, get_computer_color
 from ..engine.engine_adapter import EngineAdapter
 from ..logging_config import get_logger
+from ..exceptions import EngineError, GameModeError, GameStateError
 
 logger = get_logger(__name__)
 
@@ -132,7 +133,7 @@ class Game:
         :raises RuntimeError if no engine_adapter is set.
         """
         if not self.engine_adapter:
-            raise RuntimeError(
+            raise EngineError(
                 "No chess engine available. Please install Stockfish to get hints."
             )
         fen = self.board_state._board.fen()
@@ -147,7 +148,7 @@ class Game:
         :raises RuntimeError if no engine_adapter is set.
         """
         if not self.engine_adapter:
-            raise RuntimeError(
+            raise EngineError(
                 "No chess engine available. Please install Stockfish to get hints."
             )
 
@@ -185,29 +186,29 @@ class Game:
             GameMode.HUMAN_VS_COMPUTER,
             GameMode.COMPUTER_VS_COMPUTER,
         ]:
-            raise RuntimeError("Not in a computer vs mode")
+            raise GameModeError("Not in a computer vs mode")
         if not self.engine_adapter:
-            raise RuntimeError("No chess engine available for computer opponent")
+            raise EngineError("No chess engine available for computer opponent")
 
         # Determine which difficulty to use based on whose turn it is
         difficulty_config = None
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
             if not self.config.difficulty:
-                raise RuntimeError("No difficulty level set for computer opponent")
+                raise GameModeError("No difficulty level set for computer opponent")
             difficulty_config = get_difficulty_config(self.config.difficulty)
         elif self.config.mode == GameMode.COMPUTER_VS_COMPUTER:
             current_turn = self.board_state.board.turn
             if current_turn == chess.WHITE:
                 if not self.config.white_difficulty:
-                    raise RuntimeError("No difficulty level set for white computer")
+                    raise GameModeError("No difficulty level set for white computer")
                 difficulty_config = get_difficulty_config(self.config.white_difficulty)
             else:
                 if not self.config.black_difficulty:
-                    raise RuntimeError("No difficulty level set for black computer")
+                    raise GameModeError("No difficulty level set for black computer")
                 difficulty_config = get_difficulty_config(self.config.black_difficulty)
 
         if difficulty_config is None:
-            raise RuntimeError("Unable to determine difficulty configuration")
+            raise GameStateError("Unable to determine difficulty configuration")
 
         fen = self.board_state._board.fen()
 
@@ -233,29 +234,29 @@ class Game:
             GameMode.HUMAN_VS_COMPUTER,
             GameMode.COMPUTER_VS_COMPUTER,
         ]:
-            raise RuntimeError("Not in a computer vs mode")
+            raise GameModeError("Not in a computer vs mode")
         if not self.engine_adapter:
-            raise RuntimeError("No chess engine available for computer opponent")
+            raise EngineError("No chess engine available for computer opponent")
 
         # Determine which difficulty to use based on whose turn it is
         difficulty_config = None
         if self.config.mode == GameMode.HUMAN_VS_COMPUTER:
             if not self.config.difficulty:
-                raise RuntimeError("No difficulty level set for computer opponent")
+                raise GameModeError("No difficulty level set for computer opponent")
             difficulty_config = get_difficulty_config(self.config.difficulty)
         elif self.config.mode == GameMode.COMPUTER_VS_COMPUTER:
             current_turn = self.board_state.board.turn
             if current_turn == chess.WHITE:
                 if not self.config.white_difficulty:
-                    raise RuntimeError("No difficulty level set for white computer")
+                    raise GameModeError("No difficulty level set for white computer")
                 difficulty_config = get_difficulty_config(self.config.white_difficulty)
             else:
                 if not self.config.black_difficulty:
-                    raise RuntimeError("No difficulty level set for black computer")
+                    raise GameModeError("No difficulty level set for black computer")
                 difficulty_config = get_difficulty_config(self.config.black_difficulty)
 
         if difficulty_config is None:
-            raise RuntimeError("Unable to determine difficulty configuration")
+            raise GameStateError("Unable to determine difficulty configuration")
 
         fen = self.board_state._board.fen()
 

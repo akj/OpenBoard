@@ -4,6 +4,8 @@ from enum import StrEnum
 from dataclasses import dataclass, field
 import chess
 
+from ..exceptions import GameModeError
+
 
 class GameMode(StrEnum):
     """Supported game modes."""
@@ -61,10 +63,12 @@ class GameConfig:
     def __post_init__(self):
         """Validate configuration."""
         if self.mode == GameMode.HUMAN_VS_COMPUTER and self.difficulty is None:
-            raise ValueError("Difficulty must be specified for human vs computer mode")
+            raise GameModeError(
+                "Difficulty must be specified for human vs computer mode"
+            )
         elif self.mode == GameMode.COMPUTER_VS_COMPUTER:
             if self.white_difficulty is None or self.black_difficulty is None:
-                raise ValueError(
+                raise GameModeError(
                     "Both white_difficulty and black_difficulty must be specified for computer vs computer mode"
                 )
 
