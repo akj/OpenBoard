@@ -287,6 +287,99 @@ class ChessController:
         self.announce_mode = "brief" if self.announce_mode == "verbose" else "verbose"
         self.announce.send(self, text=f"Announce mode: {self.announce_mode}")
 
+    def announce_legal_moves(self):
+        """
+        Announce all legal moves for the currently selected piece.
+        Uses current announce_mode (brief/verbose) setting.
+        """
+        if self.selected_square is None:
+            self.announce.send(
+                self,
+                text="No piece selected. Select a piece first to hear its legal moves",
+            )
+            return
+
+        board = self.game.board_state.board
+        piece = board.piece_at(self.selected_square)
+
+        if piece is None:
+            self.announce.send(self, text="No piece at selected square")
+            return
+
+        # Get all legal moves from the selected square
+        legal_moves = [
+            move
+            for move in board.legal_moves
+            if move.from_square == self.selected_square
+        ]
+
+        if not legal_moves:
+            piece_name = PIECE_NAMES[piece.piece_type]
+            square_name = chess.square_name(self.selected_square)
+            self.announce.send(
+                self, text=f"{piece_name} on {square_name} has no legal moves"
+            )
+            return
+
+        # Format announcement based on mode
+        if self.announce_mode == "brief":
+            announcement = self._format_brief_legal_moves(legal_moves, piece)
+        else:
+            announcement = self._format_verbose_legal_moves(legal_moves, piece)
+
+        self.announce.send(self, text=announcement)
+
+    def announce_attacking_pieces(self):
+        """
+        Announce all pieces that are attacking the currently focused square.
+        Uses current announce_mode (brief/verbose) setting.
+        """
+        if self.current_square is None:
+            self.announce.send(
+                self, text="No square focused. Navigate to a square first"
+            )
+            return
+
+        board = self.game.board_state.board
+        square_name = chess.square_name(self.current_square)
+
+        # Find all pieces attacking the focused square
+        attacking_pieces = []
+
+        # Check all squares on the board for pieces that attack the focused square
+        for attacking_square in range(64):
+            piece = board.piece_at(attacking_square)
+            if piece is None:
+                continue
+
+            # Get all legal moves from this piece
+            piece_moves = [
+                move
+                for move in board.legal_moves
+                if move.from_square == attacking_square
+                and move.to_square == self.current_square
+            ]
+
+            # If this piece can move to the focused square, it's attacking it
+            if piece_moves:
+                attacking_pieces.append((attacking_square, piece))
+
+        if not attacking_pieces:
+            self.announce.send(self, text=f"No pieces are attacking {square_name}")
+            return
+
+        # Format announcement based on mode
+        if self.announce_mode == "brief":
+            announcement = self._format_brief_attacking_pieces(
+                attacking_pieces, square_name
+            )
+        else:
+            announcement = self._format_verbose_attacking_pieces(
+                attacking_pieces, square_name
+            )
+
+        self.announce.send(self, text=announcement)
+
     def announce_last_move(self):
         """
         Announce the last move that was played. Bound to ] key.
@@ -501,6 +594,100 @@ class ChessController:
                 announcement_parts.append("Draw available by threefold repetition")
 
         return ". ".join(announcement_parts)
+
+    def _format_brief_legal_moves(
+        self, legal_moves: list[chess.Move], piece: chess.Piece
+    ) -> str:
+        """
+        Format brief legal moves announcement: 'Pawn can move to: e3, e4'
+        """
+        piece_name = PIECE_NAMES[piece.piece_type]
+        destinations = [chess.square_name(move.to_square) for move in legal_moves]
+
+        if len(destinations) == 1:
+            return f"{piece_name} can move to {destinations[0]}"
+        else:
+            dest_list = ", ".join(destinations[:-1]) + f", {destinations[-1]}"
+            return f"{piece_name} can move to: {dest_list}"
+
+    def _format_verbose_legal_moves(
+        self, legal_moves: list[chess.Move], piece: chess.Piece
+    ) -> str:
+        """
+        Format verbose legal moves announcement with move details.
+        """
+        board = self.game.board_state.board
+        piece_name = PIECE_NAMES[piece.piece_type]
+        color = "White" if piece.color else "Black"
+        from_square = chess.square_name(legal_moves[0].from_square)
+
+        move_descriptions = []
+
+        for move in legal_moves:
+            to_square = chess.square_name(move.to_square)
+            target_piece = board.piece_at(move.to_square)
+
+            # Build move description
+            if target_piece:
+                target_name = PIECE_NAMES[target_piece.piece_type]
+                target_color = "white" if target_piece.color else "black"
+                description = f"{to_square}, captures {target_color} {target_name}"
+            elif move.promotion:
+                promoted_piece = PIECE_NAMES[move.promotion]
+                description = f"{to_square}, promotes to {promoted_piece}"
+            elif board.is_en_passant(move):
+                description = f"{to_square}, en passant capture"
+            elif board.is_castling(move):
+                if move.to_square > move.from_square:
+                    description = "kingside castling"
+                else:
+                    description = "queenside castling"
+            else:
+                description = to_square
+
+            move_descriptions.append(description)
+
+        # Format final announcement
+        if len(move_descriptions) == 1:
+            return f"{color} {piece_name} on {from_square} can move to {move_descriptions[0]}"
+        else:
+            moves_text = "; ".join(move_descriptions)
+            return f"{color} {piece_name} on {from_square} can move to: {moves_text}"
+
+    def _format_brief_attacking_pieces(
+        self, attacking_pieces: list[tuple[int, chess.Piece]], square_name: str
+    ) -> str:
+        """
+        Format brief attacking pieces announcement: 'e4 is attacked by: pawn, knight'
+        """
+        piece_names = [PIECE_NAMES[piece.piece_type] for _, piece in attacking_pieces]
+
+        if len(piece_names) == 1:
+            return f"{square_name} is attacked by {piece_names[0]}"
+        else:
+            pieces_list = ", ".join(piece_names[:-1]) + f", {piece_names[-1]}"
+            return f"{square_name} is attacked by: {pieces_list}"
+
+    def _format_verbose_attacking_pieces(
+        self, attacking_pieces: list[tuple[int, chess.Piece]], square_name: str
+    ) -> str:
+        """
+        Format verbose attacking pieces announcement with piece locations and colors.
+        """
+        descriptions = []
+
+        for attacking_square, piece in attacking_pieces:
+            color = "white" if piece.color else "black"
+            piece_name = PIECE_NAMES[piece.piece_type]
+            piece_location = chess.square_name(attacking_square)
+            descriptions.append(f"{color} {piece_name} on {piece_location}")
+
+        # Format final announcement
+        if len(descriptions) == 1:
+            return f"{square_name} is attacked by {descriptions[0]}"
+        else:
+            attackers_text = "; ".join(descriptions)
+            return f"{square_name} is attacked by: {attackers_text}"
 
     # —— Computer move handling —— #
 

@@ -664,6 +664,8 @@ class ChessFrame(wx.Frame):
             KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: self.controller.toggle_announce_mode(),
             KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
             KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
+            KeyAction.ANNOUNCE_LEGAL_MOVES: lambda: self.controller.announce_legal_moves(),
+            KeyAction.ANNOUNCE_ATTACKING_PIECES: lambda: self.controller.announce_attacking_pieces(),
         }
 
         return KeyboardCommandHandler(self.keyboard_config, action_handlers)

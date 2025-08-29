@@ -90,6 +90,20 @@
       "modifiers": "none",
       "description": "Announce last move", 
       "enabled": true
+    },
+    {
+      "key": "ord('M')",
+      "action": "announce_legal_moves",
+      "modifiers": "none",
+      "description": "Announce legal moves for selected piece",
+      "enabled": true
+    },
+    {
+      "key": "ord('A')",
+      "action": "announce_attacking_pieces",
+      "modifiers": "none",
+      "description": "Announce pieces attacking focused square",
+      "enabled": true
     }
   ]
 }

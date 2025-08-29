@@ -37,6 +37,8 @@ class KeyAction(str, Enum):
     TOGGLE_ANNOUNCE_MODE = "toggle_announce_mode"
     SHOW_MOVE_LIST = "show_move_list"
     ANNOUNCE_LAST_MOVE = "announce_last_move"
+    ANNOUNCE_LEGAL_MOVES = "announce_legal_moves"
+    ANNOUNCE_ATTACKING_PIECES = "announce_attacking_pieces"
 
 
 class KeyboardConfigProtocol(Protocol):
@@ -191,6 +193,16 @@ class GameKeyboardConfig:
                 key="ord(']')",
                 action=KeyAction.ANNOUNCE_LAST_MOVE,
                 description="Announce last move",
+            ),
+            KeyBinding(
+                key="ord('M')",
+                action=KeyAction.ANNOUNCE_LEGAL_MOVES,
+                description="Announce legal moves for selected piece",
+            ),
+            KeyBinding(
+                key="ord('A')",
+                action=KeyAction.ANNOUNCE_ATTACKING_PIECES,
+                description="Announce pieces attacking focused square",
             ),
         ]
     )
