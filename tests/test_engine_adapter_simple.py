@@ -80,11 +80,11 @@ def test_adapter_state_lock_prevents_races() -> None:
     )  # All should be False since not started
 
 
-def test_adapter_weakset_cleanup() -> None:
-    """Test that WeakSet properly manages future references."""
+def test_adapter_strong_set_cleanup() -> None:
+    """Test that strong reference set properly manages future references."""
     adapter = EngineAdapter(engine_path="/fake/path")
 
-    # Add some mock futures to the WeakSet
+    # Add some mock futures to the set
     future1 = Future()
     future2 = Future()
 
@@ -93,17 +93,12 @@ def test_adapter_weakset_cleanup() -> None:
 
     assert len(adapter._active_futures) == 2
 
-    # Delete references - WeakSet should clean up automatically
-    del future1
-    del future2
+    # With strong references, manual cleanup is required via discard
+    adapter._active_futures.discard(future1)
+    adapter._active_futures.discard(future2)
 
-    # Force garbage collection by creating new objects
-    import gc
-
-    gc.collect()
-
-    # WeakSet should be empty or nearly empty
-    assert len(adapter._active_futures) <= 1  # May have some delay in cleanup
+    # Set should be empty after manual cleanup
+    assert len(adapter._active_futures) == 0
 
 
 @patch("chess.engine.popen_uci")

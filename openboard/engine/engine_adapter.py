@@ -4,7 +4,6 @@ import threading
 from typing import Any, Self, AsyncIterator
 from concurrent.futures import Future
 from contextlib import asynccontextmanager
-import weakref
 
 import chess
 import chess.engine
@@ -14,113 +13,6 @@ from ..exceptions import (
     EngineNotFoundError,
     EngineInitializationError,
 )
-
-
-class AsyncLoopManager:
-    """
-    Simplified async event loop manager for GUI applications.
-    Provides a clean interface for running async operations from sync GUI code.
-    """
-
-    def __init__(self):
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._thread: threading.Thread | None = None
-        self._shutdown_event = threading.Event()
-        self._loop_ready = threading.Event()
-        self._lock = threading.RLock()
-        self._logger = logging.getLogger(f"{__name__}.AsyncLoopManager")
-
-    def ensure_loop(self) -> asyncio.AbstractEventLoop:
-        """Ensure event loop is running and return it."""
-        with self._lock:
-            if self._loop and not self._loop.is_closed():
-                return self._loop
-
-            self._start_background_loop()
-            if not self._loop_ready.wait(timeout=5.0):
-                raise EngineInitializationError("Failed to start background async loop")
-
-            if not self._loop:
-                raise EngineInitializationError("Background loop failed to initialize")
-
-            return self._loop
-
-    def _start_background_loop(self):
-        """Start asyncio loop in background thread."""
-        if self._thread and self._thread.is_alive():
-            return
-
-        self._loop_ready.clear()
-        self._shutdown_event.clear()
-
-        def run_loop():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                with self._lock:
-                    self._loop = loop
-
-                self._loop_ready.set()
-
-                # Set up shutdown monitoring
-                async def shutdown_monitor():
-                    while not self._shutdown_event.is_set():
-                        await asyncio.sleep(0.1)
-                    loop.stop()
-
-                # Schedule the shutdown monitor
-                loop.create_task(shutdown_monitor())
-
-                # Run event loop
-                loop.run_forever()
-
-            except Exception as e:
-                self._logger.error(f"Background loop error: {e}")
-            finally:
-                with self._lock:
-                    if self._loop and not self._loop.is_closed():
-                        self._loop.close()
-                    self._loop = None
-
-        self._thread = threading.Thread(target=run_loop, daemon=True)
-        self._thread.start()
-
-    def run_async(self, coro, timeout: float = 30.0):
-        """Run coroutine in background loop and return result."""
-        loop = self.ensure_loop()
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=timeout)
-
-    def run_async_with_callback(self, coro, callback=None, timeout: float = 30.0):
-        """Run coroutine in background loop and call callback with result."""
-        loop = self.ensure_loop()
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-
-        def handle_result(f):
-            try:
-                if callback:
-                    if f.exception():
-                        callback(f.exception())
-                    else:
-                        callback(f.result())
-            except Exception as e:
-                self._logger.error(f"Callback error: {e}")
-
-        future.add_done_callback(handle_result)
-        return future
-
-    def stop(self):
-        """Stop the background loop."""
-        with self._lock:
-            self._shutdown_event.set()
-
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
-
-
-# Global shared loop manager for simplified integration
-_loop_manager = AsyncLoopManager()
 
 
 class CallbackExecutor:
@@ -211,7 +103,8 @@ class EngineAdapter:
         self._state_lock = threading.RLock()
         self._loop_ready_event = threading.Event()
         self._shutdown_event = threading.Event()
-        self._active_futures = weakref.WeakSet()
+        self._active_futures = set()
+        self._cleanup_futures = set()  # Track cleanup operations with strong references
 
         # Callback execution strategy
         if callback_executor is None:
@@ -264,59 +157,54 @@ class EngineAdapter:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
 
-                    # Assign loop to instance variable (no lock needed here)
+                    # Assign loop to instance variable
                     self._loop = loop
-
-                    # Signal that loop is ready
                     self._loop_ready_event.set()
 
-                    # Run the event loop with proper shutdown handling
-                    try:
-                        # Create a task to monitor shutdown event
-                        async def monitor_shutdown():
-                            while not self._shutdown_event.is_set():
-                                await asyncio.sleep(0.1)
-                            loop.stop()
+                    # Simple loop lifecycle - run until shutdown event
+                    async def shutdown_monitor():
+                        while not self._shutdown_event.is_set():
+                            await asyncio.sleep(0.1)
+                        loop.stop()
 
-                        # Schedule the monitor task
-                        loop.create_task(monitor_shutdown())
-
-                        # Run the event loop
-                        loop.run_forever()
-                    except Exception as e:
-                        self._logger.error(f"Event loop error: {e}")
+                    # Schedule the monitor and run the loop
+                    loop.create_task(shutdown_monitor())
+                    loop.run_forever()
 
                 except Exception as e:
                     self._logger.error(f"Event loop thread failed: {e}")
-                    self._loop_ready_event.set()  # Unblock waiters even on error
+                    self._loop_ready_event.set()
                 finally:
-                    with self._state_lock:
-                        if self._loop and not self._loop.is_closed():
-                            try:
-                                # Cancel all pending tasks
-                                pending = asyncio.all_tasks(self._loop)
-                                for task in pending:
-                                    task.cancel()
-                                if pending:
+                    # Simple cleanup - cancel tasks then close loop
+                    if self._loop and not self._loop.is_closed():
+                        try:
+                            pending = asyncio.all_tasks(self._loop)
+                            for task in pending:
+                                task.cancel()
+                            if pending:
+                                # Wait briefly for cancellation
+                                try:
                                     self._loop.run_until_complete(
                                         asyncio.gather(*pending, return_exceptions=True)
                                     )
-                            except Exception as e:
-                                self._logger.warning(
-                                    f"Error cleaning up event loop tasks: {e}"
-                                )
-                            finally:
+                                except Exception:
+                                    pass  # Ignore cancellation errors
+                        except Exception:
+                            pass  # Ignore cleanup errors
+                        finally:
+                            try:
                                 self._loop.close()
-                        self._loop = None
+                            except Exception:
+                                pass  # Ignore close errors
+                    self._loop = None
 
             self._engine_thread = threading.Thread(target=run_loop, daemon=True)
             self._engine_thread.start()
 
-        # Wait for loop to be ready with timeout
+        # Wait for loop to be ready
         if not self._loop_ready_event.wait(timeout=10.0):
-            # Clean up failed thread
+            self._shutdown_event.set()
             if self._engine_thread and self._engine_thread.is_alive():
-                self._shutdown_event.set()
                 self._engine_thread.join(timeout=2.0)
             with self._state_lock:
                 self._loop = None
@@ -397,69 +285,36 @@ class EngineAdapter:
 
     def stop(self) -> None:
         """
-        Quits the engine process and stops the async loop.
+        Simplified shutdown: signal -> join thread -> reset state.
         Safe to call multiple times.
         """
+        # Step 1: Signal shutdown (set threading.Event)
         with self._state_lock:
-            # Signal shutdown to prevent new operations
             self._shutdown_event.set()
 
-        # Cancel all active futures first
+        # Cancel active futures
         with self._state_lock:
             for future in list(self._active_futures):
                 if not future.done():
-                    future.cancel()
+                    try:
+                        future.cancel()
+                    except Exception:
+                        pass  # Ignore cancellation errors
 
-        # Phase 1: Graceful engine shutdown with proper cleanup order
-        if self._loop and not self._loop.is_closed() and self._engine:
-            try:
-                # Schedule engine shutdown and wait for completion
-                future = asyncio.run_coroutine_threadsafe(
-                    self._shutdown_engine_gracefully(), self._loop
-                )
-                future.result(timeout=8.0)  # Allow time for proper cleanup
-                self._logger.debug("Engine shutdown completed successfully")
-            except Exception as e:
-                # Expected during shutdown - just continue with cleanup
-                self._logger.debug(
-                    f"Engine shutdown completed with expected cleanup warnings: {e}"
-                )
-                # Continue with forced cleanup
-
-        # Phase 2: Allow event loop to finish pending operations
-        if self._loop and not self._loop.is_closed():
-            try:
-                # Give event loop time to finish transport cleanup
-                cleanup_future = asyncio.run_coroutine_threadsafe(
-                    self._finalize_cleanup(), self._loop
-                )
-                cleanup_future.result(timeout=2.0)
-                self._logger.debug("Event loop cleanup completed")
-            except Exception as e:
-                # Cleanup warnings are expected during shutdown
-                self._logger.debug(f"Event loop cleanup warning: {e}")
-                # Continue with shutdown - don't re-raise cleanup exceptions
-
-        # Phase 3: Stop event loop after all cleanup is done
-        if self._loop and not self._loop.is_closed():
-            try:
-                self._loop.call_soon_threadsafe(self._loop.stop)
-            except RuntimeError:
-                pass  # Loop may already be stopped
-
-        # Phase 4: Wait for thread termination
+        # Step 2: Join thread (with minimal timeout only if absolutely needed)
         if self._engine_thread and self._engine_thread.is_alive():
             self._engine_thread.join(timeout=3.0)
             if self._engine_thread.is_alive():
                 self._logger.warning("Engine thread did not terminate within timeout")
 
-        # Phase 5: Final state cleanup
+        # Step 3: Reset state (clear explicit references)
         with self._state_lock:
             self._engine = None
             self._transport = None
             self._loop = None
             self._engine_thread = None
             self._active_futures.clear()
+            self._cleanup_futures.clear()
 
     async def _shutdown_engine_gracefully(self) -> None:
         """Gracefully shutdown engine with proper resource cleanup order."""
@@ -509,14 +364,6 @@ class EngineAdapter:
 
         except Exception as e:
             self._logger.debug(f"Engine shutdown completed with warnings: {e}")
-
-    async def _finalize_cleanup(self) -> None:
-        """Final cleanup phase - minimal wait for pending operations."""
-        try:
-            # Give event loop a moment to finish any remaining I/O operations
-            await asyncio.sleep(0.1)
-        except Exception:
-            pass  # Ignore any errors during final cleanup
 
     async def _safe_cleanup(self) -> None:
         """
