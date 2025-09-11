@@ -296,9 +296,9 @@ class Game:
                 self.computer_move_ready.send(self, move=None, error=str(result))
             else:
                 if result:
-                    # Send signal first to reset _computer_thinking flag, then apply move
-                    self.computer_move_ready.send(self, move=result)
+                    # Apply move first to ensure consistent board state, then send signal
                     self.board_state.make_move(result)
+                    self.computer_move_ready.send(self, move=result)
                 else:
                     logger.warning("Engine returned no move")
                     self.computer_move_ready.send(
