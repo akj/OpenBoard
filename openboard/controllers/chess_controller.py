@@ -76,6 +76,8 @@ class ChessController:
         if hasattr(game, "computer_move_ready"):
             game.computer_move_ready.connect(self._on_computer_move_ready)
 
+        # Note: Opening book functionality is now synchronous, no signals needed
+
         # announce initial board
         self._emit_board_update()
         self._announce_initial_game_state()
@@ -122,7 +124,11 @@ class ChessController:
             self.hint_ready.send(self, move=move)
 
     def _on_computer_move_ready(
-        self, sender, move: chess.Move | None = None, error: str | None = None
+        self,
+        sender,
+        move: chess.Move | None = None,
+        error: str | None = None,
+        source: str | None = None,
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
@@ -130,6 +136,11 @@ class ChessController:
 
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
+        elif move and source:
+            # Announce the source of the computer move for accessibility
+            source_text = "opening book" if source == "book" else "engine analysis"
+            if self.announce_mode == "verbose":
+                self.announce.send(self, text=f"Computer move from {source_text}")
         # Move announcement is handled by _on_model_move when the move is applied
 
     # —— Public methods for view events —— #
@@ -227,6 +238,92 @@ class ChessController:
             self.game.request_hint_async()
         except EngineError as e:
             self.announce.send(self, text=str(e))
+
+    def request_book_hint(self):
+        """
+        Request a hint from the opening book for the current position.
+        Bound to e.g. 'B' for book hint.
+        """
+        try:
+            if not self.game.opening_book:
+                self.announce.send(self, text="No opening book loaded")
+                return
+
+            book_move = self.game.request_book_move()  # Get best move
+            if book_move:
+                # Use simple format for book hints since we don't have board context
+                src_name = chess.square_name(book_move.from_square)
+                dst_name = chess.square_name(book_move.to_square)
+                move_text = f"{src_name} to {dst_name}"
+                self.announce.send(self, text=f"Book suggests: {move_text}")
+            else:
+                self.announce.send(
+                    self, text="No moves found in opening book for this position"
+                )
+        except Exception as e:
+            self.announce.send(self, text=f"Book hint failed: {e}")
+
+    def load_opening_book(self, book_file_path: str):
+        """
+        Load an opening book from the specified file path.
+        Called from menu/dialog.
+        """
+        try:
+            self.game.load_opening_book(book_file_path)
+            # Provide user feedback for successful loading
+            if self.announce_mode == "verbose":
+                book_name = (
+                    book_file_path.split("/")[-1]
+                    if "/" in book_file_path
+                    else book_file_path
+                )
+                self.announce.send(self, text=f"Opening book loaded: {book_name}")
+        except Exception as e:
+            # Provide user-friendly error messages
+            error_message = str(e)
+            if "not found" in error_message.lower():
+                self.announce.send(self, text="Opening book file not found")
+            elif "format" in error_message.lower():
+                self.announce.send(self, text="Invalid opening book file format")
+            elif "load" in error_message.lower():
+                self.announce.send(self, text="Failed to load opening book")
+            else:
+                self.announce.send(self, text=f"Opening book error: {error_message}")
+            logger.error(f"Failed to load opening book: {e}")
+
+    def unload_opening_book(self):
+        """
+        Unload the current opening book.
+        Called from menu/dialog.
+        """
+        if self.game.opening_book:
+            self.game.unload_opening_book()
+            if self.announce_mode == "verbose":
+                self.announce.send(self, text="Opening book unloaded")
+        else:
+            self.announce.send(self, text="No opening book to unload")
+
+    def check_book_moves(self):
+        """
+        Check if the opening book has moves for the current position.
+        Announces the result for accessibility.
+        """
+        if not self.game.opening_book:
+            self.announce.send(self, text="No opening book loaded")
+            return
+
+        try:
+            has_moves = self.game.has_book_moves()
+            if has_moves:
+                self.announce.send(
+                    self, text="Opening book has moves for this position"
+                )
+            else:
+                self.announce.send(
+                    self, text="Opening book has no moves for this position"
+                )
+        except Exception as e:
+            self.announce.send(self, text=f"Error checking opening book: {e}")
 
     def load_fen(self, fen: str):
         """

@@ -180,3 +180,9 @@ class DownloadError(NetworkError):
         super().__init__(message, reason)
         self.url = url
         self.reason = reason
+
+
+class OpeningBookError(OpenBoardError):
+    """Raised when opening book operations fail."""
+
+    pass

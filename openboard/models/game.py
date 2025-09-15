@@ -2,6 +2,7 @@ import chess
 from blinker import Signal
 
 from .board_state import BoardState
+from .opening_book import OpeningBook
 from .game_mode import (
     GameMode,
     GameConfig,
@@ -11,7 +12,7 @@ from .game_mode import (
 )
 from ..engine.engine_adapter import EngineAdapter
 from ..logging_config import get_logger
-from ..exceptions import EngineError, GameModeError
+from ..exceptions import EngineError, GameModeError, OpeningBookError
 
 logger = get_logger(__name__)
 
@@ -30,13 +31,16 @@ class Game:
     def __init__(
         self,
         engine_adapter: EngineAdapter | None = None,
+        opening_book: OpeningBook | None = None,
         config: GameConfig | None = None,
     ):
         """
         :param engine_adapter: if supplied, used to generate hints via UCI.
+        :param opening_book: if supplied, used for opening move suggestions
         :param config: game configuration including mode and difficulty
         """
         self.engine_adapter = engine_adapter
+        self.opening_book = opening_book
         self.board_state = BoardState()
         self.config = config or GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
         self.computer_color: chess.Color | None = None
@@ -46,8 +50,9 @@ class Game:
             self.computer_color = get_computer_color(self.config.human_color)
 
         engine_status = "with engine" if engine_adapter else "without engine"
+        book_status = "with opening book" if opening_book else "without opening book"
         mode_status = f"mode: {self.config.mode}"
-        logger.info(f"Game initialized {engine_status}, {mode_status}")
+        logger.info(f"Game initialized {engine_status}, {book_status}, {mode_status}")
 
         # Signals:
         #   move_made: forwarded from BoardState
@@ -132,6 +137,94 @@ class Game:
 
         self.board_state.make_move(mv)
 
+    def get_book_move(
+        self,
+        minimum_weight: int = 1,
+    ) -> chess.Move | None:
+        """
+        Get a move from the opening book for the current position.
+
+        Args:
+            minimum_weight: Minimum weight threshold for book entries
+
+        Returns:
+            A chess.Move if found in the book, None if no suitable move exists
+
+        Raises:
+            OpeningBookError: If an error occurs during lookup
+        """
+        if not self.opening_book:
+            logger.debug("No opening book available")
+            return None
+
+        return self.opening_book.get_move(
+            self.board_state.board,
+            minimum_weight=minimum_weight,
+        )
+
+    def request_book_move(self) -> chess.Move | None:
+        """
+        Request a move from the opening book for the current position.
+        Simplified version of get_book_move() for controller compatibility.
+
+        Returns:
+            A chess.Move if found in the book, None if no suitable move exists
+
+        Raises:
+            OpeningBookError: If an error occurs during lookup
+        """
+        return self.get_book_move()
+
+    def has_book_moves(self) -> bool:
+        """
+        Check if the current position has available moves in the opening book.
+
+        Returns:
+            True if book moves are available, False otherwise
+        """
+        if not self.opening_book or not self.opening_book.is_loaded:
+            return False
+
+        try:
+            move = self.get_book_move()
+            return move is not None
+        except Exception:
+            return False
+
+    def unload_opening_book(self) -> None:
+        """
+        Unload the current opening book.
+        Alias for close_opening_book() for controller compatibility.
+        """
+        self.close_opening_book()
+
+    def load_opening_book(self, book_file_path: str) -> None:
+        """
+        Load an opening book from a file path.
+
+        Args:
+            book_file_path: Path to the polyglot (.bin) opening book file
+
+        Raises:
+            OpeningBookError: If the book fails to load
+        """
+        if not self.opening_book:
+            self.opening_book = OpeningBook()
+
+        try:
+            self.opening_book.load(book_file_path)
+        except OpeningBookError as e:
+            logger.error(f"Failed to load opening book: {e}")
+            raise
+
+    def close_opening_book(self) -> None:
+        """
+        Close the current opening book.
+        """
+        if self.opening_book:
+            self.opening_book.close()
+            logger.info("Opening book closed")
+
     def request_hint(self, time_ms: int = 1000) -> chess.Move | None:
         """
         Ask the engine adapter for the best move in the current position.
@@ -186,6 +279,7 @@ class Game:
     def request_computer_move(self) -> chess.Move | None:
         """
         Request a move from the computer opponent.
+        First checks opening book, then falls back to engine if no book move available.
         Uses difficulty-based timing and emits computer_move_ready signal.
         :raises RuntimeError if no engine_adapter is set or not in computer mode.
         """
@@ -194,6 +288,24 @@ class Game:
             GameMode.COMPUTER_VS_COMPUTER,
         ]:
             raise GameModeError("Not in a computer vs mode")
+
+        # First try to get a move from the opening book
+        if self.opening_book and self.opening_book.is_loaded:
+            try:
+                book_move = self.opening_book.get_move(
+                    self.board_state.board,
+                    minimum_weight=1,
+                )
+                if book_move:
+                    logger.info(f"Using opening book move: {book_move}")
+                    # Apply the book move
+                    self.board_state.make_move(book_move)
+                    self.computer_move_ready.send(self, move=book_move, source="book")
+                    return book_move
+            except Exception as e:
+                logger.warning(f"Error getting book move, falling back to engine: {e}")
+
+        # Fallback to engine if no book move or book unavailable
         if not self.engine_adapter:
             raise EngineError("No chess engine available for computer opponent")
 
@@ -236,15 +348,17 @@ class Game:
         )
 
         if best_move:
-            # Apply the computer's move
+            logger.info(f"Using engine move: {best_move}")
+            # Apply the engine move
             self.board_state.make_move(best_move)
-            self.computer_move_ready.send(self, move=best_move)
+            self.computer_move_ready.send(self, move=best_move, source="engine")
 
         return best_move
 
     def request_computer_move_async(self) -> None:
         """
         Request a computer move asynchronously.
+        First checks opening book, then falls back to engine if no book move available.
         Emits computer_move_ready signal when computation is complete.
         :raises RuntimeError if no engine_adapter is set or not in computer mode.
         """
@@ -253,6 +367,24 @@ class Game:
             GameMode.COMPUTER_VS_COMPUTER,
         ]:
             raise GameModeError("Not in a computer vs mode")
+
+        # First try to get a move from the opening book
+        if self.opening_book and self.opening_book.is_loaded:
+            try:
+                book_move = self.opening_book.get_move(
+                    self.board_state.board,
+                    minimum_weight=1,
+                )
+                if book_move:
+                    logger.info(f"Using opening book move (async): {book_move}")
+                    # Apply the book move and emit signal
+                    self.board_state.make_move(book_move)
+                    self.computer_move_ready.send(self, move=book_move, source="book")
+                    return
+            except Exception as e:
+                logger.warning(f"Error getting book move, falling back to engine: {e}")
+
+        # Fallback to engine if no book move or book unavailable
         if not self.engine_adapter:
             raise EngineError("No chess engine available for computer opponent")
 
@@ -296,9 +428,10 @@ class Game:
                 self.computer_move_ready.send(self, move=None, error=str(result))
             else:
                 if result:
+                    logger.info(f"Using engine move (async): {result}")
                     # Apply move first to ensure consistent board state, then send signal
                     self.board_state.make_move(result)
-                    self.computer_move_ready.send(self, move=result)
+                    self.computer_move_ready.send(self, move=result, source="engine")
                 else:
                     logger.warning("Engine returned no move")
                     self.computer_move_ready.send(

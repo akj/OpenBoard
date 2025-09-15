@@ -230,6 +230,15 @@ class ChessFrame(wx.Frame):
         engine_menu.Append(wx.ID_ANY, "Check Engine &Status...")
         menu_bar.Append(engine_menu, "&Engine")
 
+        # Opening Book menu
+        book_menu = wx.Menu()
+        book_menu.Append(wx.ID_ANY, "&Load Opening Book...\tCtrl-B")
+        book_menu.Append(wx.ID_ANY, "&Unload Opening Book")
+        book_menu.AppendSeparator()
+        book_menu.Append(wx.ID_ANY, "&Book Hint\tB")
+        book_menu.Append(wx.ID_ANY, "Check Book &Moves")
+        menu_bar.Append(book_menu, "Opening &Book")
+
         self.SetMenuBar(menu_bar)
         self.status = self.CreateStatusBar()
 
@@ -282,6 +291,28 @@ class ChessFrame(wx.Frame):
             wx.EVT_MENU,
             self.on_check_engine_status,
             id=engine_menu.GetMenuItems()[3].GetId(),
+        )
+
+        # Bind opening book menu events
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_load_opening_book,
+            id=book_menu.GetMenuItems()[0].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_unload_opening_book,
+            id=book_menu.GetMenuItems()[1].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_book_hint,
+            id=book_menu.GetMenuItems()[3].GetId(),
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.on_check_book_moves,
+            id=book_menu.GetMenuItems()[4].GetId(),
         )
 
         # Bind key events for navigation & commands
@@ -461,6 +492,37 @@ class ChessFrame(wx.Frame):
                     self.on_update_stockfish(event)
                 else:
                     self.on_install_stockfish(event)
+
+    def on_load_opening_book(self, event):
+        """Handle Opening Book > Load Opening Book menu selection."""
+        with wx.FileDialog(
+            self,
+            "Select Opening Book File",
+            wildcard="Polyglot opening book files (*.bin)|*.bin|All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_OK:
+                book_path = file_dialog.GetPath()
+                try:
+                    self.controller.load_opening_book(book_path)
+                except Exception as e:
+                    wx.MessageBox(
+                        f"Failed to load opening book:\n{e}",
+                        "Opening Book Error",
+                        wx.OK | wx.ICON_ERROR,
+                    )
+
+    def on_unload_opening_book(self, event):
+        """Handle Opening Book > Unload Opening Book menu selection."""
+        self.controller.unload_opening_book()
+
+    def on_book_hint(self, event):
+        """Handle Opening Book > Book Hint menu selection."""
+        self.controller.request_book_hint()
+
+    def on_check_book_moves(self, event):
+        """Handle Opening Book > Check Book Moves menu selection."""
+        self.controller.check_book_moves()
 
     def on_new_human_vs_human(self, event):
         """Handle Game > New Game: Human vs Human menu selection."""
@@ -659,6 +721,7 @@ class ChessFrame(wx.Frame):
             KeyAction.DESELECT: lambda: self.controller.deselect(),
             KeyAction.UNDO: lambda: self.controller.undo(),
             KeyAction.REQUEST_HINT: lambda: self.controller.request_hint(),
+            KeyAction.REQUEST_BOOK_HINT: lambda: self.controller.request_book_hint(),
             KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
             KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
             KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: self.controller.toggle_announce_mode(),
