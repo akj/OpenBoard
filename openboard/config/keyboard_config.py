@@ -39,6 +39,7 @@ class KeyAction(str, Enum):
     ANNOUNCE_LAST_MOVE = "announce_last_move"
     ANNOUNCE_LEGAL_MOVES = "announce_legal_moves"
     ANNOUNCE_ATTACKING_PIECES = "announce_attacking_pieces"
+    REQUEST_BOOK_HINT = "request_book_hint"
 
 
 class KeyboardConfigProtocol(Protocol):
@@ -166,6 +167,11 @@ class GameKeyboardConfig:
                 key="ord('H')",
                 action=KeyAction.REQUEST_HINT,
                 description="Request hint",
+            ),
+            KeyBinding(
+                key="ord('B')",
+                action=KeyAction.REQUEST_BOOK_HINT,
+                description="Request opening book hint",
             ),
             # Replay
             KeyBinding(

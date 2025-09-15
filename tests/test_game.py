@@ -1,7 +1,9 @@
 import pytest
 import chess
+from unittest.mock import Mock
 from openboard.models.game import Game
 from openboard.models.board_state import BoardState
+from openboard.models.opening_book import OpeningBook
 from openboard.exceptions import IllegalMoveError, EngineError
 
 
@@ -104,3 +106,86 @@ def test_pawn_promotion_explicit_piece():
         assert promoted_piece is not None
         assert promoted_piece.piece_type == promotion_piece
         assert promoted_piece.color == chess.WHITE
+
+
+def test_request_book_move_no_book():
+    """Test request_book_move returns None when no opening book is loaded."""
+    game = Game()
+    result = game.request_book_move()
+    assert result is None
+
+
+def test_request_book_move_with_book():
+    """Test request_book_move returns move when opening book has moves."""
+    mock_book = Mock(spec=OpeningBook)
+    mock_book.is_loaded = True
+    expected_move = chess.Move.from_uci("e2e4")
+    mock_book.get_move.return_value = expected_move
+
+    game = Game(opening_book=mock_book)
+    result = game.request_book_move()
+
+    assert result == expected_move
+    mock_book.get_move.assert_called_once_with(game.board_state.board, minimum_weight=1)
+
+
+def test_has_book_moves_no_book():
+    """Test has_book_moves returns False when no opening book is loaded."""
+    game = Game()
+    assert game.has_book_moves() is False
+
+
+def test_has_book_moves_book_not_loaded():
+    """Test has_book_moves returns False when opening book exists but is not loaded."""
+    mock_book = Mock(spec=OpeningBook)
+    mock_book.is_loaded = False
+
+    game = Game(opening_book=mock_book)
+    assert game.has_book_moves() is False
+
+
+def test_has_book_moves_with_moves():
+    """Test has_book_moves returns True when opening book has moves for current position."""
+    mock_book = Mock(spec=OpeningBook)
+    mock_book.is_loaded = True
+    mock_book.get_move.return_value = chess.Move.from_uci("e2e4")
+
+    game = Game(opening_book=mock_book)
+    assert game.has_book_moves() is True
+
+
+def test_has_book_moves_no_moves():
+    """Test has_book_moves returns False when opening book has no moves for current position."""
+    mock_book = Mock(spec=OpeningBook)
+    mock_book.is_loaded = True
+    mock_book.get_move.return_value = None
+
+    game = Game(opening_book=mock_book)
+    assert game.has_book_moves() is False
+
+
+def test_has_book_moves_exception_handling():
+    """Test has_book_moves returns False when an exception occurs during lookup."""
+    mock_book = Mock(spec=OpeningBook)
+    mock_book.is_loaded = True
+    mock_book.get_move.side_effect = Exception("Book error")
+
+    game = Game(opening_book=mock_book)
+    assert game.has_book_moves() is False
+
+
+def test_unload_opening_book_calls_close():
+    """Test unload_opening_book calls close_opening_book."""
+    mock_book = Mock(spec=OpeningBook)
+    game = Game(opening_book=mock_book)
+
+    game.unload_opening_book()
+
+    mock_book.close.assert_called_once()
+
+
+def test_unload_opening_book_no_book():
+    """Test unload_opening_book works when no opening book is loaded."""
+    game = Game()
+    # Should not raise an exception
+    game.unload_opening_book()
