@@ -99,3 +99,66 @@ class TestChessControllerOpeningBookIntegration:
 
         finally:
             os.unlink(temp_path)
+
+    def test_move_announcement_fix_for_opening_book_moves(self):
+        """Test that computer moves from opening book don't falsely announce 'takes'."""
+        config = GameConfig(
+            mode=GameMode.HUMAN_VS_COMPUTER,
+            human_color=chess.WHITE,
+            difficulty=DifficultyLevel.INTERMEDIATE,
+        )
+        game = Game(engine_adapter=self.mock_engine, config=config)
+        controller = ChessController(game, config={"announce_mode": "verbose"})
+
+        announcements = []
+
+        def capture_announcement(sender, text=None, **kwargs):
+            if text:
+                announcements.append(text)
+
+        controller.announce.connect(capture_announcement)
+
+        # Test non-capture move with old_board = None (simulating computer move scenario)
+        game.board_state.make_move(chess.Move.from_uci("e2e4"))  # White pawn
+        game.board_state.make_move(
+            chess.Move.from_uci("d7d5")
+        )  # Black pawn (non-capture)
+
+        # Clear announcements from setup
+        announcements.clear()
+
+        # Simulate computer move scenario where _pending_old_board is None
+        controller._pending_old_board = None
+
+        # Test the last move (d7d5 - not a capture)
+        last_move = game.board_state.board.move_stack[-1]
+        announcement = controller._format_move_announcement(last_move)
+
+        # Verify no false "takes" for non-capture
+        assert "takes" not in announcement.lower(), (
+            f"Non-capture shouldn't announce 'takes': {announcement}"
+        )
+        assert "captures" not in announcement.lower(), (
+            f"Non-capture shouldn't announce 'captures': {announcement}"
+        )
+
+        # Test actual capture move with old_board = None
+        game.board_state.make_move(
+            chess.Move.from_uci("e4d5")
+        )  # White captures black pawn
+
+        # Reset _pending_old_board to None to simulate computer move
+        controller._pending_old_board = None
+
+        # Test the capture move
+        capture_move = game.board_state.board.move_stack[-1]
+        capture_announcement = controller._format_move_announcement(capture_move)
+
+        # Verify capture IS announced correctly
+        has_takes = (
+            "takes" in capture_announcement.lower()
+            or "captures" in capture_announcement.lower()
+        )
+        assert has_takes, (
+            f"Real capture should announce 'takes': {capture_announcement}"
+        )
