@@ -298,9 +298,13 @@ class Game:
                 )
                 if book_move:
                     logger.info(f"Using opening book move: {book_move}")
+                    # Capture board state before move for proper announcement
+                    old_board = self.board_state.board.copy()
                     # Apply the book move
                     self.board_state.make_move(book_move)
-                    self.computer_move_ready.send(self, move=book_move, source="book")
+                    self.computer_move_ready.send(
+                        self, move=book_move, source="book", old_board=old_board
+                    )
                     return book_move
             except Exception as e:
                 logger.warning(f"Error getting book move, falling back to engine: {e}")
@@ -349,9 +353,13 @@ class Game:
 
         if best_move:
             logger.info(f"Using engine move: {best_move}")
+            # Capture board state before move for proper announcement
+            old_board = self.board_state.board.copy()
             # Apply the engine move
             self.board_state.make_move(best_move)
-            self.computer_move_ready.send(self, move=best_move, source="engine")
+            self.computer_move_ready.send(
+                self, move=best_move, source="engine", old_board=old_board
+            )
 
         return best_move
 
@@ -377,9 +385,13 @@ class Game:
                 )
                 if book_move:
                     logger.info(f"Using opening book move (async): {book_move}")
+                    # Capture board state before move for proper announcement
+                    old_board = self.board_state.board.copy()
                     # Apply the book move and emit signal
                     self.board_state.make_move(book_move)
-                    self.computer_move_ready.send(self, move=book_move, source="book")
+                    self.computer_move_ready.send(
+                        self, move=book_move, source="book", old_board=old_board
+                    )
                     return
             except Exception as e:
                 logger.warning(f"Error getting book move, falling back to engine: {e}")
@@ -429,9 +441,13 @@ class Game:
             else:
                 if result:
                     logger.info(f"Using engine move (async): {result}")
+                    # Capture board state before move for proper announcement
+                    old_board = self.board_state.board.copy()
                     # Apply move first to ensure consistent board state, then send signal
                     self.board_state.make_move(result)
-                    self.computer_move_ready.send(self, move=result, source="engine")
+                    self.computer_move_ready.send(
+                        self, move=result, source="engine", old_board=old_board
+                    )
                 else:
                     logger.warning("Engine returned no move")
                     self.computer_move_ready.send(

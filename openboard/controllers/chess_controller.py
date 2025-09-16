@@ -63,6 +63,9 @@ class ChessController:
         # apply_move is called by the controller:
         self._pending_old_board: chess.Board | None = None
 
+        # for computer moves, we need to capture the board before the move is made
+        self._pre_computer_move_board: chess.Board | None = None
+
         # computer move handling
         self._computer_thinking: bool = False
 
@@ -91,8 +94,20 @@ class ChessController:
 
         # announce the move (skip if move is None, e.g., from load_fen)
         if move is not None:
-            ann = self._format_move_announcement(move)
-            self.announce.send(self, text=ann)
+            # For computer moves, delay announcement until _on_computer_move_ready
+            # provides proper capture detection context
+            is_computer_move = (
+                self._computer_thinking  # Currently processing computer move
+                or (
+                    self._pre_computer_move_board is not None
+                )  # Have captured board for computer move
+            )
+
+            if not is_computer_move:
+                ann = self._format_move_announcement(move)
+                self.announce.send(self, text=ann)
+                # Clear the pending old board after announcement
+                self._pending_old_board = None
 
         # Check if computer should move next (but not during replay)
         if (
@@ -129,6 +144,7 @@ class ChessController:
         move: chess.Move | None = None,
         error: str | None = None,
         source: str | None = None,
+        old_board: chess.Board | None = None,
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
@@ -136,12 +152,29 @@ class ChessController:
 
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
+            # Clear the captured board state on error
+            self._pre_computer_move_board = None
         elif move and source:
+            # The move has already been applied by the Game model and announced via _on_model_move
+            # But the announcement was without the old board context
+            # So we need to re-announce with proper capture detection using the provided old_board
+            if old_board is not None:
+                # Set the old board for the re-announcement
+                self._pending_old_board = old_board
+                # Re-announce the move with proper context
+                ann = self._format_move_announcement(move)
+                self.announce.send(self, text=ann)
+                # Clear the pending board
+                self._pending_old_board = None
+
+            # Clear the pre-computer move board since we're done
+            self._pre_computer_move_board = None
+
             # Announce the source of the computer move for accessibility
             source_text = "opening book" if source == "book" else "engine analysis"
             if self.announce_mode == "verbose":
                 self.announce.send(self, text=f"Computer move from {source_text}")
-        # Move announcement is handled by _on_model_move when the move is applied
+        # Note: _on_model_move will also announce the move, but without capture detection
 
     # —— Public methods for view events —— #
 
@@ -520,13 +553,12 @@ class ChessController:
         Wraps Game.apply_move so we can remember the old board for capture detection.
         """
         # stash a copy of the board *before* move
-        self._pending_old_board = self.game.board_state.board
+        self._pending_old_board = self.game.board_state.board.copy()
         try:
             self.game.apply_move(src, dst)
         except IllegalMoveError as e:
             self.announce.send(self, text=str(e))
-        finally:
-            # clear stash; _on_model_move will read it if present
+            # Clear the pending board on error since no move was made
             self._pending_old_board = None
 
     def _emit_board_update(self):
@@ -560,7 +592,14 @@ class ChessController:
         Covers: basic moves, captures, check, checkmate, castling, en passant, promotion, etc.
         """
         board = self.game.board_state.board
+
+        # Use pending old board if available, otherwise reconstruct from move history
         old_board = self._pending_old_board
+        if old_board is None and board.move_stack:
+            # Create temporary board with all moves except the last one
+            old_board = chess.Board()
+            for prev_move in board.move_stack[:-1]:
+                old_board.push(prev_move)
 
         if self.announce_mode == "brief":
             return self._format_brief_announcement(move, board, old_board)
@@ -609,6 +648,14 @@ class ChessController:
         is_castling = old_board and old_board.is_castling(move)
         is_en_passant = old_board and old_board.is_en_passant(move)
         is_capture = old_board and old_board.is_capture(move)
+
+        # Debug logging for capture detection
+        if old_board:
+            logger.debug(
+                f"Move {move}: is_capture={is_capture}, piece_at_dst_before={old_board.piece_at(dst)}"
+            )
+        else:
+            logger.debug(f"Move {move}: old_board is None, cannot detect captures")
 
         match (is_castling, is_en_passant, bool(move.promotion), is_capture):
             case (True, _, _, _):
@@ -793,6 +840,10 @@ class ChessController:
         if self._computer_thinking:
             return  # Already thinking
 
+        # Capture the board state before requesting the computer move
+        # This is needed for proper move announcement (capture detection)
+        self._pre_computer_move_board = self.game.board_state.board.copy()
+
         self._computer_thinking = True
         self.computer_thinking.send(self, thinking=True)
 
@@ -804,6 +855,8 @@ class ChessController:
             self._computer_thinking = False
             self.computer_thinking.send(self, thinking=False)
             self.announce.send(self, text=f"Computer move failed: {e}")
+            # Clear the captured board state on error
+            self._pre_computer_move_board = None
 
     def is_computer_thinking(self) -> bool:
         """Check if computer is currently thinking."""
