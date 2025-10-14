@@ -2,5 +2,46 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "separateMinorPatch": false,
+  "separateMajorMinor": false,
+  "separateMultipleMajor": false,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "timezone": "America/New_York",
+  "updateNotScheduled": false,
+  "schedule": [
+    "* 12-15 * * 6"
+  ],
+  "enabledManagers": ["pep621", "github-actions"],
+  "pep621": {
+    "rangeStrategy": "bump"
+  },
+  "ignoreDeps": [
+    "python"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "recreateWhen": "auto",
+    "rebaseStalePrs": true,
+    "branchTopic": "lock-file-maintenance",
+    "commitMessageAction": "Lock file maintenance",
+    "commitMessageTopic": null,
+    "commitMessageExtra": null,
+    "updateNotScheduled": false,
+    "schedule": [
+      "* 12-15 * * 6",
+    ],
+    "groupName": null,
+    "prBodyDefinitions": {
+      "Change": "All locks refreshed"
+    }
+  },
+  "packageRules": [
+    {
+      "description": "Automerge dependencies",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
+    }
   ]
 }
