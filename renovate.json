@@ -42,6 +42,12 @@
   },
   "packageRules": [
     {
+      "description": "Bump ranges for all pep621 dependencies",
+      "matchManagers": ["pep621"],
+      "rangeStrategy": "bump",
+      "updateInternalDeps": true
+    },
+    {
       "description": "Automerge dependencies",
       "matchUpdateTypes": [
         "minor",
