@@ -13,7 +13,10 @@
   "schedule": [
     "* 12-15 * * 6"
   ],
-  "enabledManagers": ["pep621", "github-actions"],
+  "enabledManagers": [
+    "pep621",
+    "github-actions"
+  ],
   "pep621": {
     "rangeStrategy": "bump"
   },
@@ -23,14 +26,14 @@
   "lockFileMaintenance": {
     "enabled": true,
     "recreateWhen": "auto",
-    "rebaseStalePrs": true,
+    "rebaseWhen": "behind-base-branch",
     "branchTopic": "lock-file-maintenance",
     "commitMessageAction": "Lock file maintenance",
     "commitMessageTopic": null,
     "commitMessageExtra": null,
     "updateNotScheduled": false,
     "schedule": [
-      "* 12-15 * * 6",
+      "* 12-15 * * 6"
     ],
     "groupName": null,
     "prBodyDefinitions": {
@@ -40,7 +43,12 @@
   "packageRules": [
     {
       "description": "Automerge dependencies",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "automerge": true
     }
   ]
