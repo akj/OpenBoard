@@ -1,0 +1,30 @@
+name: Setup Python and UV
+description: Install Python, UV, and project dependencies
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: true
+    default: '3.12'
+  uv-version:
+    description: 'UV version to use'
+    required: true
+    default: '0.5.11'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --group dev
