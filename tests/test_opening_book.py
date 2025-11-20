@@ -1,5 +1,6 @@
 """Tests for OpeningBook model."""
 
+import gc
 import os
 import tempfile
 import time
@@ -95,18 +96,25 @@ class TestOpeningBookLoading:
             # Ensure the book is closed before deleting on Windows
             if self.book.is_loaded:
                 self.book.close()
-            # On Windows, give a moment for file handles to be released
+
+            # On Windows, force garbage collection and retry with backoff
             if os.name == "nt":
+                gc.collect()  # Force cleanup of any lingering file handles
                 time.sleep(0.1)
-            try:
+
+                # Retry up to 3 times with increasing delays
+                for attempt in range(3):
+                    try:
+                        os.unlink(temp_path)
+                        break  # Success
+                    except PermissionError:
+                        if attempt < 2:  # Not the last attempt
+                            time.sleep(0.5 * (attempt + 1))  # Increasing backoff
+                        else:
+                            # Last attempt failed - cleanup will happen eventually
+                            pass  # Ignore the error on the last attempt
+            else:
                 os.unlink(temp_path)
-            except PermissionError:
-                # On Windows, if the file is still locked, try again after a brief delay
-                if os.name == "nt":
-                    time.sleep(0.5)
-                    os.unlink(temp_path)
-                else:
-                    raise
 
     def test_load_success(self):
         """Test successfully loading a book."""

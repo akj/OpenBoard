@@ -78,10 +78,6 @@ jobs:
           **/pyproject.toml
           **/uv.lock
 
-    - name: Install dependencies
-      run: |
-        uv sync --frozen
-
     - name: Cache APT packages (Ubuntu)
       if: runner.os == 'Linux'
       uses: actions/cache@v4
@@ -111,7 +107,7 @@ jobs:
         sudo apt-get install -y \
           stockfish \
           libgtk-3-dev \
-          libwebkit2gtk-4.0-dev \
+          libwebkit2gtk-4.1-dev \
           libnotify-dev \
           libsdl2-dev \
           speech-dispatcher \
@@ -141,7 +137,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           libgtk-3-dev \
-          libwebkit2gtk-4.0-dev \
+          libwebkit2gtk-4.1-dev \
           libnotify-dev \
           libsdl2-dev
         # Only install GUI libraries needed for wxPython builds
@@ -158,6 +154,10 @@ jobs:
       run: |
         # Only install dependencies needed for building
         Write-Host "No additional system dependencies required for Windows builds"
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen
 
     - name: Run tests
       run: |
