@@ -1,0 +1,201 @@
+name: Build Executable
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      os:
+        required: true
+        type: string
+        description: 'Operating system to build for (ubuntu-latest, windows-latest, or macos-latest)'
+      artifact-retention-days:
+        required: false
+        type: number
+        default: 90
+        description: 'Number of days to retain artifacts'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ inputs.os }}
+    runs-on: ${{ inputs.os }}
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for git metadata in build
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/uv.lock', '**/pyproject.toml') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen --group dev
+
+    - name: Cache APT packages (Ubuntu)
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: apt-build-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-build.yml') }}
+        restore-keys: |
+          apt-build-${{ runner.os }}-
+
+    - name: Cache Homebrew packages (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/Library/Caches/Homebrew
+          /usr/local/Cellar/stockfish
+          /opt/homebrew/Cellar/stockfish
+        key: brew-build-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-build.yml') }}
+        restore-keys: |
+          brew-build-${{ runner.os }}-stockfish-
+          brew-build-${{ runner.os }}-
+
+    - name: Cache PyInstaller build
+      uses: actions/cache@v4
+      with:
+        path: build/__pycache__
+        key: pyinstaller-${{ runner.os }}-${{ hashFiles('build/**/*.py', 'openboard/**/*.py') }}
+        restore-keys: |
+          pyinstaller-${{ runner.os }}-
+
+    - name: Install system dependencies and Stockfish (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          stockfish \
+          libgtk-3-dev \
+          libwebkit2gtk-4.0-dev \
+          libnotify-dev \
+          libsdl2-dev \
+          speech-dispatcher \
+          espeak-ng
+
+    - name: Install system dependencies and Stockfish (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install stockfish
+
+    - name: Install system dependencies and Stockfish (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        # Download and install Stockfish for Windows
+        $url = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
+        $output = "stockfish.zip"
+        Invoke-WebRequest -Uri $url -OutFile $output
+        Expand-Archive -Path $output -DestinationPath "stockfish"
+        $stockfishPath = Join-Path (Get-Location) "stockfish"
+        echo "$stockfishPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Run PyInstaller build
+      run: |
+        uv run python build/scripts/build.py --verbose
+
+    - name: Determine executable path and platform suffix
+      id: paths
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          echo "executable=dist/OpenBoard/OpenBoard.exe" >> $GITHUB_OUTPUT
+          echo "platform=windows" >> $GITHUB_OUTPUT
+          echo "archive_name=OpenBoard-windows-x64.zip" >> $GITHUB_OUTPUT
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          echo "executable=dist/OpenBoard.app" >> $GITHUB_OUTPUT
+          echo "platform=macos" >> $GITHUB_OUTPUT
+          echo "archive_name=OpenBoard-macos-x64.tar.gz" >> $GITHUB_OUTPUT
+        else
+          echo "executable=dist/OpenBoard/OpenBoard" >> $GITHUB_OUTPUT
+          echo "platform=linux" >> $GITHUB_OUTPUT
+          echo "archive_name=OpenBoard-linux-x64.tar.gz" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Generate SHA256 checksum
+      id: checksum
+      shell: bash
+      run: |
+        cd dist
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          sha256sum OpenBoard/OpenBoard.exe > OpenBoard.sha256
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          # For macOS, checksum the entire .app bundle as a tar
+          tar -czf - OpenBoard.app | shasum -a 256 | cut -d' ' -f1 > OpenBoard.sha256
+        else
+          sha256sum OpenBoard/OpenBoard > OpenBoard.sha256
+        fi
+        echo "checksum=$(cat OpenBoard.sha256)" >> $GITHUB_OUTPUT
+
+    - name: Create archive (Linux)
+      if: runner.os == 'Linux'
+      working-directory: dist
+      run: |
+        tar -czf ${{ steps.paths.outputs.archive_name }} OpenBoard/
+
+    - name: Create archive (macOS)
+      if: runner.os == 'macOS'
+      working-directory: dist
+      run: |
+        tar -czf ${{ steps.paths.outputs.archive_name }} OpenBoard.app
+
+    - name: Create archive (Windows)
+      if: runner.os == 'Windows'
+      working-directory: dist
+      shell: pwsh
+      run: |
+        Compress-Archive -Path OpenBoard/* -DestinationPath ${{ steps.paths.outputs.archive_name }}
+
+    - name: Upload executable artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: openboard-${{ steps.paths.outputs.platform }}
+        path: dist/${{ steps.paths.outputs.archive_name }}
+        retention-days: ${{ inputs.artifact-retention-days }}
+        if-no-files-found: error
+
+    - name: Upload checksum artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: openboard-${{ steps.paths.outputs.platform }}-checksum
+        path: dist/OpenBoard.sha256
+        retention-days: ${{ inputs.artifact-retention-days }}
+        if-no-files-found: error
