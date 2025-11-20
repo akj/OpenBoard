@@ -315,7 +315,7 @@ class MoveListDialog(wx.Dialog):
             parent,
             title="Move List",
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
-            size=(400, 500),
+            size=wx.Size(400, 500),
         )
 
         self.move_list = move_list
