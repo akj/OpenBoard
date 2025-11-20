@@ -60,7 +60,9 @@ class TestOpeningBookLoading:
 
         assert "not found" in str(exc_info.value)
 
-    @pytest.mark.skipif(os.name == "nt", reason="chmod doesn't work the same on Windows")
+    @pytest.mark.skipif(
+        os.name == "nt", reason="chmod doesn't work the same on Windows"
+    )
     def test_load_unreadable_file(self):
         """Test loading an unreadable book file."""
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as temp_file:

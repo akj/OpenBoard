@@ -166,4 +166,4 @@ jobs:
     - name: Test import (verify package structure)
       if: inputs.run-import-test
       run: |
-        uv run python -c "import openboard; print('✓ Package imports successfully')"
+        uv run python -c "import openboard; print('Package imports successfully')"
