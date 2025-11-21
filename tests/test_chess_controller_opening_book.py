@@ -155,10 +155,5 @@ class TestChessControllerOpeningBookIntegration:
         capture_msg = controller._format_move_announcement(capture_move)
 
         # Verify capture IS announced correctly
-        has_takes = (
-            "takes" in capture_msg.lower()
-            or "captures" in capture_msg.lower()
-        )
-        assert has_takes, (
-            f"Real capture should announce 'takes': {capture_msg}"
-        )
+        has_takes = "takes" in capture_msg.lower() or "captures" in capture_msg.lower()
+        assert has_takes, f"Real capture should announce 'takes': {capture_msg}"
