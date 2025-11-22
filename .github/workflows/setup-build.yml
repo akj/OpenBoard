@@ -37,7 +37,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0  # Full history for git metadata in build
 
@@ -55,7 +55,7 @@ jobs:
           venv-${{ runner.os }}-py${{ inputs.python-version }}-
 
     - name: Install UV
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@v7
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: true
@@ -185,7 +185,7 @@ jobs:
         Compress-Archive -Path OpenBoard/* -DestinationPath ${{ steps.paths.outputs.archive_name }}
 
     - name: Upload executable artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: openboard-${{ steps.paths.outputs.platform }}
         path: dist/${{ steps.paths.outputs.archive_name }}
@@ -193,7 +193,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload checksum artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: openboard-${{ steps.paths.outputs.platform }}-checksum
         path: dist/OpenBoard.sha256
