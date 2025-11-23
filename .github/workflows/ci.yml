@@ -38,8 +38,6 @@ jobs:
     name: Build Validation
     needs: [lint, test]
     uses: ./.github/workflows/setup-validate.yml
-    with:
-      run-build-framework-test: false  # Disabled until build framework is ready
     permissions:
       contents: read
       actions: read

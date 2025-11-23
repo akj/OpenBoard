@@ -1,0 +1,102 @@
+name: Build and Validate
+
+on:
+  workflow_dispatch:  # Allow manual trigger
+  push:
+    branches:
+      - main
+      - build
+  pull_request:
+    branches:
+      - main
+
+# Cancel in-progress runs for the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions - read only
+permissions:
+  contents: read
+
+jobs:
+  # Build for all platforms
+  build-linux:
+    name: Build Linux
+    uses: ./.github/workflows/setup-build.yml
+    with:
+      os: ubuntu-latest
+      artifact-retention-days: 7  # Short retention for validation builds
+    permissions:
+      contents: read
+      actions: read
+
+  build-macos:
+    name: Build macOS
+    uses: ./.github/workflows/setup-build.yml
+    with:
+      os: macos-latest
+      artifact-retention-days: 7
+    permissions:
+      contents: read
+      actions: read
+
+  build-windows:
+    name: Build Windows
+    uses: ./.github/workflows/setup-build.yml
+    with:
+      os: windows-latest
+      artifact-retention-days: 7
+    permissions:
+      contents: read
+      actions: read
+
+  # Validate all platform builds
+  validate-linux:
+    name: Validate Linux
+    needs: build-linux
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: ubuntu-latest
+      artifact-name: openboard-linux
+    permissions:
+      contents: read
+      actions: read
+
+  validate-macos:
+    name: Validate macOS
+    needs: build-macos
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: macos-latest
+      artifact-name: openboard-macos
+    permissions:
+      contents: read
+      actions: read
+
+  validate-windows:
+    name: Validate Windows
+    needs: build-windows
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: windows-latest
+      artifact-name: openboard-windows
+    permissions:
+      contents: read
+      actions: read
+
+  # Summary job to check all validations passed
+  validation-summary:
+    name: Validation Summary
+    needs: [validate-linux, validate-macos, validate-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: All validations passed
+      run: |
+        echo "✅ All platform builds validated successfully!"
+        echo "- Linux: OK"
+        echo "- macOS: OK"
+        echo "- Windows: OK"

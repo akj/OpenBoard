@@ -18,16 +18,6 @@ on:
         type: boolean
         default: true
         description: 'Whether to run PyInstaller validation'
-      run-build-framework-test:
-        required: false
-        type: boolean
-        default: true
-        description: 'Whether to run build framework test'
-      validation-script-path:
-        required: false
-        type: string
-        default: 'build/validation/verify_build.py'
-        description: 'Path to the build validation script'
 
 # Minimal permissions for reusable workflow
 permissions:
@@ -80,8 +70,3 @@ jobs:
         import openboard
         print('✓ PyInstaller hooks validation passed')
         "
-
-    - name: Test build validation framework
-      if: inputs.run-build-framework-test
-      run: |
-        uv run python ${{ inputs.validation-script-path }} --test-only

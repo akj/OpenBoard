@@ -43,10 +43,44 @@ jobs:
       contents: read
       actions: read
 
-  # Create GitHub release with all artifacts
+  # Validate all platform builds before release
+  validate-linux:
+    name: Validate Linux
+    needs: build-linux
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: ubuntu-latest
+      artifact-name: openboard-linux
+    permissions:
+      contents: read
+      actions: read
+
+  validate-macos:
+    name: Validate macOS
+    needs: build-macos
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: macos-latest
+      artifact-name: openboard-macos
+    permissions:
+      contents: read
+      actions: read
+
+  validate-windows:
+    name: Validate Windows
+    needs: build-windows
+    uses: ./.github/workflows/setup-validate-executable.yml
+    with:
+      os: windows-latest
+      artifact-name: openboard-windows
+    permissions:
+      contents: read
+      actions: read
+
+  # Create GitHub release with all artifacts (only if validations pass)
   create-release:
     name: Create GitHub Release
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos, build-windows, validate-linux, validate-macos, validate-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
