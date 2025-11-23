@@ -142,4 +142,4 @@ jobs:
 
     - name: Run build validation
       run: |
-        uv run python build/validation/verify_build.py --executable ${{ env.EXECUTABLE_PATH }} --verbose
+        uv run python .build/validation/verify_build.py --executable ${{ env.EXECUTABLE_PATH }} --verbose

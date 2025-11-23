@@ -104,7 +104,7 @@ jobs:
         sudo apt-get install -y \
           stockfish \
           libgtk-3-dev \
-          libwebkit2gtk-4.0-dev \
+          libwebkit2gtk-4.1-dev \
           libnotify-dev \
           libsdl2-dev \
           speech-dispatcher \
@@ -130,7 +130,7 @@ jobs:
 
     - name: Run PyInstaller build
       run: |
-        uv run python build/scripts/build.py --verbose
+        uv run python .build/scripts/build.py --verbose
 
     - name: Determine executable path and platform suffix
       id: paths
