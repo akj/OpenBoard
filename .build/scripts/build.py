@@ -40,10 +40,11 @@ class OpenBoardBuilder:
         else:
             self.project_root = Path(project_root)
 
-        self.build_dir = self.project_root / "build"
+        self.build_dir = self.project_root / "build"  # PyInstaller build artifacts
         self.dist_dir = self.project_root / "dist"
         self.spec_file = self.project_root / "openboard.spec"
         self.pyproject_file = self.project_root / "pyproject.toml"
+        self.log_file = self.project_root / "build.log"  # Log file in project root
 
         # Platform detection
         self.system = platform.system()
@@ -64,7 +65,7 @@ class OpenBoardBuilder:
             format="%(asctime)s - %(levelname)s - %(message)s",
             handlers=[
                 logging.StreamHandler(sys.stdout),
-                logging.FileHandler(self.build_dir / "build.log", mode="w"),
+                logging.FileHandler(self.log_file, mode="w"),
             ],
         )
         return logging.getLogger(__name__)
@@ -503,17 +504,17 @@ def main() -> NoReturn:
                 else:
                     builder.run_build_validation()
 
-        print("\n✅ Build completed successfully!")
+        print("\nBuild completed successfully!")
         sys.exit(0)
 
     except BuildError as e:
-        print(f"\n❌ Build failed: {e}")
+        print(f"\nBuild failed: {e}")
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\n🛑 Build interrupted by user")
+        print("\nBuild interrupted by user")
         sys.exit(130)
     except Exception as e:
-        print(f"\n💥 Unexpected error: {e}")
+        print(f"\nUnexpected error: {e}")
         sys.exit(1)
 
 
