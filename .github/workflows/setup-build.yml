@@ -72,7 +72,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /var/cache/apt/archives
-        key: apt-build-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-build.yml') }}
+        key: apt-build-${{ runner.os }}-${{ github.run_number }}
         restore-keys: |
           apt-build-${{ runner.os }}-
 
@@ -84,7 +84,7 @@ jobs:
           ~/Library/Caches/Homebrew
           /usr/local/Cellar/stockfish
           /opt/homebrew/Cellar/stockfish
-        key: brew-build-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-build.yml') }}
+        key: brew-build-${{ runner.os }}-stockfish-${{ github.run_number }}
         restore-keys: |
           brew-build-${{ runner.os }}-stockfish-
           brew-build-${{ runner.os }}-
@@ -93,7 +93,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: build/__pycache__
-        key: pyinstaller-${{ runner.os }}-${{ hashFiles('build/**/*.py') }}
+        key: pyinstaller-${{ runner.os }}-${{ github.run_number }}
         restore-keys: |
           pyinstaller-${{ runner.os }}-
 
