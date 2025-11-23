@@ -70,7 +70,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /var/cache/apt/archives
-        key: apt-validate-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-validate-executable.yml') }}
+        key: apt-validate-${{ runner.os }}-${{ github.run_number }}
         restore-keys: |
           apt-validate-${{ runner.os }}-
 
@@ -82,7 +82,7 @@ jobs:
           ~/Library/Caches/Homebrew
           /usr/local/Cellar/stockfish
           /opt/homebrew/Cellar/stockfish
-        key: brew-validate-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-validate-executable.yml') }}
+        key: brew-validate-${{ runner.os }}-stockfish-${{ github.run_number }}
         restore-keys: |
           brew-validate-${{ runner.os }}-stockfish-
           brew-validate-${{ runner.os }}-

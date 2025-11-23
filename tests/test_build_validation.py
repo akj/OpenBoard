@@ -7,13 +7,11 @@ ensuring that the validation framework itself works correctly across
 different platforms and scenarios.
 """
 
-import json
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -110,7 +108,9 @@ class TestBuildValidator:
         # Should pass if we're in a properly set up environment
         if result["passed"]:
             assert "required dependencies are available" in result["message"]
-            assert "dependency_results" in result["details"]
+            # Details should contain the individual package results
+            assert "details" in result
+            assert "chess" in result["details"]
         else:
             assert "Missing or broken dependencies" in result["message"]
 

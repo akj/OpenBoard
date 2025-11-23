@@ -8,7 +8,6 @@ module validation, performance baseline establishment, and engine
 detection system testing.
 """
 
-import asyncio
 import importlib
 import logging
 import platform
@@ -16,8 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from unittest.mock import MagicMock, patch
+from typing import Any, Dict, List, Tuple
 
 # Set up logging early to capture any import errors
 logging.basicConfig(
@@ -168,7 +166,6 @@ class BuildValidator:
             start_time = time.time()
 
             # Test accessible-output3 import
-            import accessible_output3
             from accessible_output3.outputs.auto import Auto
 
             # Test screen reader interface creation (without actually speaking)
@@ -214,14 +211,14 @@ class BuildValidator:
             stockfish_path = detector.find_engine("stockfish")
 
             # Test engine availability
-            engines_found = detector.get_available_engines()
+            engines_found = detector.list_available_engines()
 
             duration = time.time() - start_time
 
             details = {
                 "stockfish_path": str(stockfish_path) if stockfish_path else None,
                 "engines_found": len(engines_found),
-                "engine_names": list(engines_found.keys()) if engines_found else []
+                "engine_names": engines_found
             }
 
             self._add_result(
@@ -251,7 +248,6 @@ class BuildValidator:
 
             from openboard.models.game import Game
             from openboard.models.game_mode import GameMode, GameConfig
-            import chess
 
             # Test basic game creation
             game = Game()
@@ -286,7 +282,7 @@ class BuildValidator:
             details = {
                 "initial_legal_moves": len(legal_moves),
                 "move_made_correctly": move_made_correctly,
-                "game_config_valid": True
+                "game_config_valid": bool(config)
             }
 
             self._add_result(
@@ -406,7 +402,6 @@ class BuildValidator:
         try:
             # Import timing
             start_time = time.time()
-            import openboard
             import_time = time.time() - start_time
             benchmarks["import_time"] = import_time
 

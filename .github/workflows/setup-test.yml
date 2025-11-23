@@ -83,7 +83,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /var/cache/apt/archives
-        key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-test.yml') }}
+        key: apt-${{ runner.os }}-${{ github.run_number }}
         restore-keys: |
           apt-${{ runner.os }}-
 
@@ -95,7 +95,7 @@ jobs:
           ~/Library/Caches/Homebrew
           /usr/local/Cellar/stockfish
           /opt/homebrew/Cellar/stockfish
-        key: brew-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-test.yml') }}
+        key: brew-${{ runner.os }}-stockfish-${{ github.run_number }}
         restore-keys: |
           brew-${{ runner.os }}-stockfish-
           brew-${{ runner.os }}-
