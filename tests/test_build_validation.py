@@ -20,9 +20,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import from .build directory (with dot prefix it needs special handling)
 import importlib.util
+
 spec = importlib.util.spec_from_file_location(
     "verify_build",
-    Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+    Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py",
 )
 verify_build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_build)
@@ -52,7 +53,7 @@ class TestBuildValidator:
             passed=True,
             message="Test passed",
             duration=0.5,
-            details={"extra": "info"}
+            details={"extra": "info"},
         )
 
         assert test_name in self.validator.results
@@ -67,7 +68,7 @@ class TestBuildValidator:
         success, message, details = self.validator._run_subprocess_test(
             command=["python", "-c", "print('test')"],
             test_name="test_command",
-            timeout=5
+            timeout=5,
         )
 
         assert success is True
@@ -80,7 +81,7 @@ class TestBuildValidator:
         success, message, details = self.validator._run_subprocess_test(
             command=["python", "-c", "import sys; sys.exit(1)"],
             test_name="test_failing_command",
-            timeout=5
+            timeout=5,
         )
 
         assert success is False
@@ -92,7 +93,7 @@ class TestBuildValidator:
         success, message, details = self.validator._run_subprocess_test(
             command=["nonexistent_command_12345"],
             test_name="test_missing_command",
-            timeout=5
+            timeout=5,
         )
 
         assert success is False
@@ -248,7 +249,7 @@ class TestBuildValidator:
             "engine_detection",
             "game_logic",
             "signal_system",
-            "performance_baseline"
+            "performance_baseline",
         ]
 
         for test_name in expected_tests:
@@ -282,7 +283,9 @@ class TestBuildValidationIntegration:
 
     def test_validation_script_execution(self):
         """Test that the validation script can be executed."""
-        validation_script = Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        validation_script = (
+            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        )
         assert validation_script.exists(), "Validation script should exist"
 
         # Test that the script can be imported and run
@@ -290,7 +293,7 @@ class TestBuildValidationIntegration:
             [sys.executable, str(validation_script), "--help"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         assert result.returncode == 0
@@ -298,14 +301,16 @@ class TestBuildValidationIntegration:
 
     def test_validation_with_verbose_flag(self):
         """Test validation script with verbose flag."""
-        validation_script = Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        validation_script = (
+            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        )
 
         # Run a quick validation with verbose flag
         result = subprocess.run(
             [sys.executable, str(validation_script), "--verbose"],
             capture_output=True,
             text=True,
-            timeout=60  # Allow more time for full validation
+            timeout=60,  # Allow more time for full validation
         )
 
         # Should complete (pass or fail) but not crash
@@ -314,7 +319,9 @@ class TestBuildValidationIntegration:
 
     def test_validation_project_root_parameter(self):
         """Test validation script with custom project root."""
-        validation_script = Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        validation_script = (
+            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
+        )
         project_root = Path(__file__).parent.parent
 
         result = subprocess.run(
@@ -323,11 +330,11 @@ class TestBuildValidationIntegration:
                 str(validation_script),
                 "--project-root",
                 str(project_root),
-                "--verbose"
+                "--verbose",
             ],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
         )
 
         # Should complete without crashing
@@ -355,7 +362,7 @@ class TestBuildValidationMocking:
         validator = BuildValidator()
 
         # Mock importlib.import_module to simulate missing dependencies
-        with patch('importlib.import_module') as mock_import:
+        with patch("importlib.import_module") as mock_import:
             mock_import.side_effect = ImportError("Module not found")
 
             validator.validate_dependencies()
@@ -374,7 +381,7 @@ class TestBuildValidationMocking:
                 raise ImportError(f"Cannot import {module_name}")
             return MagicMock()
 
-        with patch('importlib.import_module', side_effect=mock_import_side_effect):
+        with patch("importlib.import_module", side_effect=mock_import_side_effect):
             validator.validate_package_imports()
 
             result = validator.results["package_imports"]
@@ -397,8 +404,10 @@ class TestBuildValidationMocking:
                 return original_time() + 2.0
             return original_time()
 
-        with patch('time.time', side_effect=mock_time):
-            with patch('openboard.models.game.Game'):  # Mock to avoid actual slow operations
+        with patch("time.time", side_effect=mock_time):
+            with patch(
+                "openboard.models.game.Game"
+            ):  # Mock to avoid actual slow operations
                 validator.performance_baseline()
 
                 result = validator.results["performance_baseline"]

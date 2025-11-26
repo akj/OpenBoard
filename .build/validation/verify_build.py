@@ -21,20 +21,23 @@ from typing import Any, Dict, List, Tuple
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 
 class ValidationError(Exception):
     """Raised when a validation check fails."""
+
     pass
 
 
 class BuildValidator:
     """Validates OpenBoard builds for functionality and performance."""
 
-    def __init__(self, executable_path: Path | None = None, project_root: Path | None = None):
+    def __init__(
+        self, executable_path: Path | None = None, project_root: Path | None = None
+    ):
         """
         Initialize the build validator.
 
@@ -57,16 +60,25 @@ class BuildValidator:
         # Validation results storage
         self.results: Dict[str, Dict[str, Any]] = {}
 
-    def _add_result(self, test_name: str, passed: bool, message: str, duration: float = 0.0, details: Dict[str, Any] | None = None) -> None:
+    def _add_result(
+        self,
+        test_name: str,
+        passed: bool,
+        message: str,
+        duration: float = 0.0,
+        details: Dict[str, Any] | None = None,
+    ) -> None:
         """Add a test result to the results storage."""
         self.results[test_name] = {
             "passed": passed,
             "message": message,
             "duration": duration,
-            "details": details or {}
+            "details": details or {},
         }
 
-    def _run_subprocess_test(self, command: List[str], test_name: str, timeout: int = 30) -> Tuple[bool, str, Dict[str, Any]]:
+    def _run_subprocess_test(
+        self, command: List[str], test_name: str, timeout: int = 30
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Run a subprocess test with timeout and error handling.
 
@@ -83,11 +95,7 @@ class BuildValidator:
         try:
             start_time = time.time()
             result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False
+                command, capture_output=True, text=True, timeout=timeout, check=False
             )
             duration = time.time() - start_time
 
@@ -95,20 +103,36 @@ class BuildValidator:
                 "returncode": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "duration": duration
+                "duration": duration,
             }
 
             if result.returncode == 0:
                 return True, f"{test_name} completed successfully", details
             else:
-                return False, f"{test_name} failed with exit code {result.returncode}", details
+                return (
+                    False,
+                    f"{test_name} failed with exit code {result.returncode}",
+                    details,
+                )
 
         except subprocess.TimeoutExpired:
-            return False, f"{test_name} timed out after {timeout} seconds", {"timeout": timeout}
+            return (
+                False,
+                f"{test_name} timed out after {timeout} seconds",
+                {"timeout": timeout},
+            )
         except FileNotFoundError:
-            return False, f"{test_name} failed: command not found", {"command": command[0]}
+            return (
+                False,
+                f"{test_name} failed: command not found",
+                {"command": command[0]},
+            )
         except Exception as e:
-            return False, f"{test_name} failed with exception: {e}", {"exception": str(e)}
+            return (
+                False,
+                f"{test_name} failed with exception: {e}",
+                {"exception": str(e)},
+            )
 
     def validate_package_imports(self) -> None:
         """Validate that all core OpenBoard modules can be imported."""
@@ -124,7 +148,7 @@ class BuildValidator:
             "openboard.engine.engine_detection",
             "openboard.config.settings",
             "openboard.logging_config",
-            "openboard.views.views"
+            "openboard.views.views",
         ]
 
         failed_imports = []
@@ -139,7 +163,11 @@ class BuildValidator:
                 logger.debug(f"Successfully imported {module_name}")
             except Exception as e:
                 duration = time.time() - start_time
-                import_details[module_name] = {"success": False, "duration": duration, "error": str(e)}
+                import_details[module_name] = {
+                    "success": False,
+                    "duration": duration,
+                    "error": str(e),
+                }
                 failed_imports.append(f"{module_name}: {e}")
                 logger.error(f"Failed to import {module_name}: {e}")
 
@@ -148,14 +176,14 @@ class BuildValidator:
                 "package_imports",
                 False,
                 f"Failed to import {len(failed_imports)} modules: {', '.join(failed_imports)}",
-                details=import_details
+                details=import_details,
             )
         else:
             self._add_result(
                 "package_imports",
                 True,
                 f"Successfully imported all {len(core_modules)} core modules",
-                details=import_details
+                details=import_details,
             )
 
     def validate_accessibility_modules(self) -> None:
@@ -173,8 +201,10 @@ class BuildValidator:
 
             # Check available outputs
             available_outputs = []
-            if hasattr(auto_output, 'outputs'):
-                available_outputs = [str(output.__class__.__name__) for output in auto_output.outputs]
+            if hasattr(auto_output, "outputs"):
+                available_outputs = [
+                    str(output.__class__.__name__) for output in auto_output.outputs
+                ]
 
             duration = time.time() - start_time
 
@@ -183,7 +213,7 @@ class BuildValidator:
                 True,
                 f"Accessibility modules loaded successfully with {len(available_outputs)} outputs",
                 duration,
-                {"available_outputs": available_outputs}
+                {"available_outputs": available_outputs},
             )
 
         except Exception as e:
@@ -193,7 +223,7 @@ class BuildValidator:
                 False,
                 f"Accessibility validation failed: {e}",
                 duration,
-                {"error": str(e)}
+                {"error": str(e)},
             )
 
     def validate_chess_engine_detection(self) -> None:
@@ -218,7 +248,7 @@ class BuildValidator:
             details = {
                 "stockfish_path": str(stockfish_path) if stockfish_path else None,
                 "engines_found": len(engines_found),
-                "engine_names": engines_found
+                "engine_names": engines_found,
             }
 
             self._add_result(
@@ -226,7 +256,7 @@ class BuildValidator:
                 True,
                 f"Engine detection completed, found {len(engines_found)} engines",
                 duration,
-                details
+                details,
             )
 
         except Exception as e:
@@ -236,7 +266,7 @@ class BuildValidator:
                 False,
                 f"Engine detection failed: {e}",
                 duration,
-                {"error": str(e)}
+                {"error": str(e)},
             )
 
     def validate_game_logic(self) -> None:
@@ -274,7 +304,7 @@ class BuildValidator:
             config = GameConfig(
                 mode=GameMode.HUMAN_VS_HUMAN,
                 white_difficulty=None,
-                black_difficulty=None
+                black_difficulty=None,
             )
 
             duration = time.time() - start_time
@@ -282,7 +312,7 @@ class BuildValidator:
             details = {
                 "initial_legal_moves": len(legal_moves),
                 "move_made_correctly": move_made_correctly,
-                "game_config_valid": bool(config)
+                "game_config_valid": bool(config),
             }
 
             self._add_result(
@@ -290,7 +320,7 @@ class BuildValidator:
                 True,
                 "Game logic validation completed successfully",
                 duration,
-                details
+                details,
             )
 
         except Exception as e:
@@ -300,7 +330,7 @@ class BuildValidator:
                 False,
                 f"Game logic validation failed: {e}",
                 duration,
-                {"error": str(e)}
+                {"error": str(e)},
             )
 
     def validate_signal_system(self) -> None:
@@ -334,6 +364,7 @@ class BuildValidator:
 
             # Make a test move
             import chess
+
             move = chess.Move.from_uci("e2e4")
             if move in board_state.board.legal_moves:
                 board_state.make_move(move)
@@ -343,7 +374,7 @@ class BuildValidator:
             details = {
                 "basic_signal_received": len(signal_received) > 0,
                 "board_signals_working": len(move_signals) > 0,
-                "signal_data": signal_received[0] if signal_received else None
+                "signal_data": signal_received[0] if signal_received else None,
             }
 
             self._add_result(
@@ -351,7 +382,7 @@ class BuildValidator:
                 True,
                 "Signal system validation completed successfully",
                 duration,
-                details
+                details,
             )
 
         except Exception as e:
@@ -361,7 +392,7 @@ class BuildValidator:
                 False,
                 f"Signal system validation failed: {e}",
                 duration,
-                {"error": str(e)}
+                {"error": str(e)},
             )
 
     def validate_executable_functionality(self) -> None:
@@ -370,7 +401,7 @@ class BuildValidator:
             self._add_result(
                 "executable_functionality",
                 False,
-                "No executable path provided or executable not found"
+                "No executable path provided or executable not found",
             )
             return
 
@@ -380,9 +411,7 @@ class BuildValidator:
         test_command = [str(self.executable_path), "--help"]
 
         success, message, details = self._run_subprocess_test(
-            test_command,
-            "executable help test",
-            timeout=10
+            test_command, "executable help test", timeout=10
         )
 
         self._add_result(
@@ -390,7 +419,7 @@ class BuildValidator:
             success,
             message,
             details.get("duration", 0),
-            details
+            details,
         )
 
     def performance_baseline(self) -> None:
@@ -408,6 +437,7 @@ class BuildValidator:
             # Game initialization timing
             start_time = time.time()
             from openboard.models.game import Game
+
             game = Game()
             init_time = time.time() - start_time
             benchmarks["game_init_time"] = init_time
@@ -431,29 +461,31 @@ class BuildValidator:
                 "import_time": 2.0,
                 "game_init_time": 0.5,
                 "move_generation_time": 0.1,
-                "move_execution_time": 0.1
+                "move_execution_time": 0.1,
             }
 
             # Check if performance is acceptable
             performance_issues = []
             for metric, value in benchmarks.items():
-                threshold = thresholds.get(metric, float('inf'))
+                threshold = thresholds.get(metric, float("inf"))
                 if value > threshold:
-                    performance_issues.append(f"{metric}: {value:.3f}s (threshold: {threshold}s)")
+                    performance_issues.append(
+                        f"{metric}: {value:.3f}s (threshold: {threshold}s)"
+                    )
 
             if performance_issues:
                 self._add_result(
                     "performance_baseline",
                     False,
                     f"Performance issues detected: {', '.join(performance_issues)}",
-                    details={"benchmarks": benchmarks, "thresholds": thresholds}
+                    details={"benchmarks": benchmarks, "thresholds": thresholds},
                 )
             else:
                 self._add_result(
                     "performance_baseline",
                     True,
                     "All performance metrics within acceptable thresholds",
-                    details={"benchmarks": benchmarks, "thresholds": thresholds}
+                    details={"benchmarks": benchmarks, "thresholds": thresholds},
                 )
 
         except Exception as e:
@@ -461,7 +493,7 @@ class BuildValidator:
                 "performance_baseline",
                 False,
                 f"Performance baseline failed: {e}",
-                details={"error": str(e), "benchmarks": benchmarks}
+                details={"error": str(e), "benchmarks": benchmarks},
             )
 
     def validate_dependencies(self) -> None:
@@ -473,7 +505,7 @@ class BuildValidator:
             ("wx", "wxPython GUI framework"),
             ("blinker", "signal system"),
             ("accessible_output3", "accessibility support"),
-            ("pydantic", "configuration validation")
+            ("pydantic", "configuration validation"),
         ]
 
         dependency_results = {}
@@ -487,13 +519,13 @@ class BuildValidator:
                 dependency_results[package_name] = {
                     "available": True,
                     "import_time": import_time,
-                    "description": description
+                    "description": description,
                 }
             except Exception as e:
                 dependency_results[package_name] = {
                     "available": False,
                     "error": str(e),
-                    "description": description
+                    "description": description,
                 }
                 failed_dependencies.append(f"{package_name} ({description})")
 
@@ -502,14 +534,14 @@ class BuildValidator:
                 "dependencies",
                 False,
                 f"Missing or broken dependencies: {', '.join(failed_dependencies)}",
-                details=dependency_results
+                details=dependency_results,
             )
         else:
             self._add_result(
                 "dependencies",
                 True,
                 f"All {len(required_packages)} required dependencies are available",
-                details=dependency_results
+                details=dependency_results,
             )
 
     def run_all_validations(self) -> Dict[str, Dict[str, Any]]:
@@ -549,7 +581,7 @@ class BuildValidator:
                     test_name.lower().replace(" ", "_"),
                     False,
                     f"Unexpected error: {e}",
-                    details={"exception": str(e)}
+                    details={"exception": str(e)},
                 )
 
         return self.results
@@ -598,20 +630,13 @@ def main() -> int:
         description="Validate OpenBoard build functionality"
     )
     parser.add_argument(
-        "--executable",
-        type=Path,
-        help="Path to the built executable to validate"
+        "--executable", type=Path, help="Path to the built executable to validate"
     )
     parser.add_argument(
-        "--project-root",
-        type=Path,
-        help="Path to the project root directory"
+        "--project-root", type=Path, help="Path to the project root directory"
     )
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose logging"
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
     args = parser.parse_args()

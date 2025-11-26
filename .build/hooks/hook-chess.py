@@ -8,20 +8,20 @@ included, especially modules that might be dynamically imported.
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 # Collect all chess modules
-datas, binaries, hiddenimports = collect_all('chess')
+datas, binaries, hiddenimports = collect_all("chess")
 
 # Ensure all submodules are included
-hiddenimports += collect_submodules('chess')
+hiddenimports += collect_submodules("chess")
 
 # Core chess modules that might be dynamically imported
 hiddenimports += [
-    'chess.engine',
-    'chess.polyglot',
-    'chess.pgn',
-    'chess.svg',
-    'chess.syzygy',
-    'chess.variant',
-    'chess.gaviota',
+    "chess.engine",
+    "chess.polyglot",
+    "chess.pgn",
+    "chess.svg",
+    "chess.syzygy",
+    "chess.variant",
+    "chess.gaviota",
 ]
 
 # Include any chess data files (like piece sets, opening books)

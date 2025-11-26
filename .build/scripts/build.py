@@ -21,6 +21,7 @@ from typing import Dict, NoReturn
 
 class BuildError(Exception):
     """Raised when a build operation fails."""
+
     pass
 
 
@@ -119,7 +120,7 @@ class OpenBoardBuilder:
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -133,7 +134,7 @@ class OpenBoardBuilder:
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -166,8 +167,7 @@ class OpenBoardBuilder:
             # Update version in spec file
             version = self.project_metadata["version"]
             updated_content = spec_content.replace(
-                'APP_VERSION = "0.1.0"',
-                f'APP_VERSION = "{version}"'
+                'APP_VERSION = "0.1.0"', f'APP_VERSION = "{version}"'
             )
 
             # Write back if changed
@@ -322,7 +322,9 @@ class OpenBoardBuilder:
             "Platform Version": build_metadata["platform_version"],
             "Python Version": build_metadata["python_version"],
             "Git Branch": build_metadata["git_branch"],
-            "Git Commit": build_metadata["git_commit"][:8] if build_metadata["git_commit"] != "unknown" else "unknown",
+            "Git Commit": build_metadata["git_commit"][:8]
+            if build_metadata["git_commit"] != "unknown"
+            else "unknown",
             "Build Time": build_metadata["build_time"],
             "Project Root": str(self.project_root),
             "Spec File": str(self.spec_file),
@@ -381,16 +383,26 @@ class OpenBoardBuilder:
 
         try:
             # Test that the package can be imported
-            self._run_command([
-                "uv", "run", "python", "-c",
-                "import openboard; print('OpenBoard package imported successfully')"
-            ])
+            self._run_command(
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "-c",
+                    "import openboard; print('OpenBoard package imported successfully')",
+                ]
+            )
 
             # Test that the entry point works (just import, don't start GUI)
-            self._run_command([
-                "uv", "run", "python", "-c",
-                "from openboard.views.views import main; print('Entry point accessible')"
-            ])
+            self._run_command(
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "-c",
+                    "from openboard.views.views import main; print('Entry point accessible')",
+                ]
+            )
 
             self.logger.info("Tests passed!")
 
@@ -404,7 +416,9 @@ class OpenBoardBuilder:
 
         validation_script = self.build_dir / "validation" / "verify_build.py"
         if not validation_script.exists():
-            self.logger.warning("Build validation script not found, skipping validation")
+            self.logger.warning(
+                "Build validation script not found, skipping validation"
+            )
             return
 
         command = ["uv", "run", "python", str(validation_script)]

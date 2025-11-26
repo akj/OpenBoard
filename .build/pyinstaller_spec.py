@@ -55,7 +55,6 @@ HIDDEN_IMPORTS = [
     "openboard.exceptions",
     "openboard.views.game_dialogs",
     "openboard.views.engine_dialogs",
-
     # wxPython modules that may not be auto-detected
     "wx",
     "wx.lib",
@@ -70,7 +69,6 @@ HIDDEN_IMPORTS = [
     "wx.stc",
     "wx.webkit",
     "wx.xml",
-
     # accessible-output3 modules
     "accessible_output3",
     "accessible_output3.outputs",
@@ -81,7 +79,6 @@ HIDDEN_IMPORTS = [
     "accessible_output3.outputs.sapi",
     "accessible_output3.outputs.speechd",
     "accessible_output3.outputs.voiceover",
-
     # Chess library modules
     "chess",
     "chess.engine",
@@ -89,10 +86,8 @@ HIDDEN_IMPORTS = [
     "chess.pgn",
     "chess.svg",
     "chess.syzygy",
-
     # Blinker for signals
     "blinker",
-
     # Standard library modules that might be missed
     "asyncio",
     "concurrent.futures",
@@ -103,7 +98,6 @@ HIDDEN_IMPORTS = [
     "platform",
     "subprocess",
     "shutil",
-
     # Pydantic for configuration
     "pydantic",
     "pydantic.dataclasses",
@@ -114,26 +108,32 @@ HIDDEN_IMPORTS = [
 
 # Platform-specific hidden imports
 if IS_WINDOWS:
-    HIDDEN_IMPORTS.extend([
-        "accessible_output3.outputs.sapi",
-        "accessible_output3.outputs.nvda",
-        "accessible_output3.outputs.jaws",
-        "win32api",
-        "win32con",
-        "win32gui",
-        "winsound",
-    ])
+    HIDDEN_IMPORTS.extend(
+        [
+            "accessible_output3.outputs.sapi",
+            "accessible_output3.outputs.nvda",
+            "accessible_output3.outputs.jaws",
+            "win32api",
+            "win32con",
+            "win32gui",
+            "winsound",
+        ]
+    )
 elif IS_MACOS:
-    HIDDEN_IMPORTS.extend([
-        "accessible_output3.outputs.voiceover",
-        "Foundation",
-        "AppKit",
-        "Cocoa",
-    ])
+    HIDDEN_IMPORTS.extend(
+        [
+            "accessible_output3.outputs.voiceover",
+            "Foundation",
+            "AppKit",
+            "Cocoa",
+        ]
+    )
 elif IS_LINUX:
-    HIDDEN_IMPORTS.extend([
-        "accessible_output3.outputs.speechd",
-    ])
+    HIDDEN_IMPORTS.extend(
+        [
+            "accessible_output3.outputs.speechd",
+        ]
+    )
 
 # Data files to include
 DATA_FILES = [
@@ -182,11 +182,7 @@ a = Analysis(
 )
 
 # PYZ (Python ZIP archive)
-pyz = PYZ(
-    a.pure,
-    a.zipped_data,
-    cipher=None
-)
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 # Executable configuration
 exe = EXE(
@@ -230,11 +226,11 @@ if IS_MACOS:
         bundle_identifier=f"com.openboard.{APP_NAME.lower()}",
         version=APP_VERSION,
         info_plist={
-            'CFBundleName': APP_NAME,
-            'CFBundleDisplayName': APP_NAME,
-            'CFBundleVersion': APP_VERSION,
-            'CFBundleShortVersionString': APP_VERSION,
-            'NSHighResolutionCapable': True,
-            'NSRequiresAquaSystemAppearance': False,
+            "CFBundleName": APP_NAME,
+            "CFBundleDisplayName": APP_NAME,
+            "CFBundleVersion": APP_VERSION,
+            "CFBundleShortVersionString": APP_VERSION,
+            "NSHighResolutionCapable": True,
+            "NSRequiresAquaSystemAppearance": False,
         },
     )

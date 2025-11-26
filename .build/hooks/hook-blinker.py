@@ -8,12 +8,12 @@ for the signal-based MVC communication system.
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 # Collect all blinker modules
-datas, binaries, hiddenimports = collect_all('blinker')
+datas, binaries, hiddenimports = collect_all("blinker")
 
 # Ensure all submodules are included
-hiddenimports += collect_submodules('blinker')
+hiddenimports += collect_submodules("blinker")
 
 # Core blinker modules
 hiddenimports += [
-    'blinker.base',
+    "blinker.base",
 ]
