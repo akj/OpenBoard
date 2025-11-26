@@ -521,19 +521,23 @@ class BuildValidator:
         """
         logger.info("Starting comprehensive build validation...")
 
-        validations = [
-            ("Dependencies", self.validate_dependencies),
-            ("Package Imports", self.validate_package_imports),
-            ("Accessibility Modules", self.validate_accessibility_modules),
-            ("Engine Detection", self.validate_chess_engine_detection),
-            ("Game Logic", self.validate_game_logic),
-            ("Signal System", self.validate_signal_system),
-            ("Performance Baseline", self.performance_baseline),
-        ]
-
-        # Add executable validation if path is provided
+        # If executable path is provided, only validate the executable
+        # (skip source code validations since openboard package isn't installed)
         if self.executable_path:
-            validations.append(("Executable Functionality", self.validate_executable_functionality))
+            validations = [
+                ("Executable Functionality", self.validate_executable_functionality),
+            ]
+        else:
+            # Run source code validations
+            validations = [
+                ("Dependencies", self.validate_dependencies),
+                ("Package Imports", self.validate_package_imports),
+                ("Accessibility Modules", self.validate_accessibility_modules),
+                ("Engine Detection", self.validate_chess_engine_detection),
+                ("Game Logic", self.validate_game_logic),
+                ("Signal System", self.validate_signal_system),
+                ("Performance Baseline", self.performance_baseline),
+            ]
 
         for test_name, test_func in validations:
             try:
