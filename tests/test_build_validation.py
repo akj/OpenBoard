@@ -25,6 +25,8 @@ spec = importlib.util.spec_from_file_location(
     "verify_build",
     Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py",
 )
+if spec is None or spec.loader is None:
+    raise ImportError("Could not load verify_build module")
 verify_build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_build)
 BuildValidator = verify_build.BuildValidator
