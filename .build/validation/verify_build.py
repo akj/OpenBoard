@@ -415,7 +415,6 @@ class BuildValidator:
                 raise ValidationError(f"Executable path is not a file: {self.executable_path}")
 
             # Check execute permissions (Unix-like systems)
-            import os
             import stat
 
             file_stat = self.executable_path.stat()
