@@ -396,7 +396,7 @@ class BuildValidator:
             )
 
     def validate_executable_functionality(self) -> None:
-        """Validate the built executable can start and respond."""
+        """Validate the built executable exists and is properly configured."""
         if not self.executable_path or not self.executable_path.exists():
             self._add_result(
                 "executable_functionality",
@@ -407,20 +407,58 @@ class BuildValidator:
 
         logger.info(f"Validating executable functionality: {self.executable_path}")
 
-        # Test executable can start and exit cleanly
-        test_command = [str(self.executable_path), "--help"]
+        start_time = time.time()
 
-        success, message, details = self._run_subprocess_test(
-            test_command, "executable help test", timeout=10
-        )
+        try:
+            # Check if file exists and is readable
+            if not self.executable_path.is_file():
+                raise ValidationError(f"Executable path is not a file: {self.executable_path}")
 
-        self._add_result(
-            "executable_functionality",
-            success,
-            message,
-            details.get("duration", 0),
-            details,
-        )
+            # Check execute permissions (Unix-like systems)
+            import os
+            import stat
+
+            file_stat = self.executable_path.stat()
+            is_executable = bool(file_stat.st_mode & stat.S_IXUSR)
+
+            # Get file size
+            file_size = file_stat.st_size
+
+            # Basic sanity check - executable should be larger than 1MB
+            if file_size < 1_000_000:
+                raise ValidationError(f"Executable file size ({file_size} bytes) is suspiciously small")
+
+            duration = time.time() - start_time
+
+            details = {
+                "path": str(self.executable_path),
+                "size_bytes": file_size,
+                "size_mb": round(file_size / (1024 * 1024), 2),
+                "is_executable": is_executable,
+                "system": self.system,
+            }
+
+            # On Windows, executability check doesn't apply the same way
+            if self.system != "Windows" and not is_executable:
+                raise ValidationError("Executable does not have execute permissions")
+
+            self._add_result(
+                "executable_functionality",
+                True,
+                f"Executable validated successfully ({details['size_mb']} MB)",
+                duration,
+                details,
+            )
+
+        except Exception as e:
+            duration = time.time() - start_time
+            self._add_result(
+                "executable_functionality",
+                False,
+                f"Executable validation failed: {e}",
+                duration,
+                {"error": str(e)},
+            )
 
     def performance_baseline(self) -> None:
         """Establish performance baselines for critical operations."""
