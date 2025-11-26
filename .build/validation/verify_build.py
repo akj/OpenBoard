@@ -412,7 +412,9 @@ class BuildValidator:
         try:
             # Check if file exists and is readable
             if not self.executable_path.is_file():
-                raise ValidationError(f"Executable path is not a file: {self.executable_path}")
+                raise ValidationError(
+                    f"Executable path is not a file: {self.executable_path}"
+                )
 
             # Check execute permissions (Unix-like systems)
             import stat
@@ -425,7 +427,9 @@ class BuildValidator:
 
             # Basic sanity check - executable should be larger than 1MB
             if file_size < 1_000_000:
-                raise ValidationError(f"Executable file size ({file_size} bytes) is suspiciously small")
+                raise ValidationError(
+                    f"Executable file size ({file_size} bytes) is suspiciously small"
+                )
 
             duration = time.time() - start_time
 
