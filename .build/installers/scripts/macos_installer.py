@@ -25,9 +25,7 @@ def verify_macos() -> None:
         OSError: If not running on macOS
     """
     if platform.system() != "Darwin":
-        raise OSError(
-            f"This script must be run on macOS, not {platform.system()}"
-        )
+        raise OSError(f"This script must be run on macOS, not {platform.system()}")
 
 
 def find_create_dmg() -> Path | None:
@@ -46,11 +44,7 @@ def find_create_dmg() -> Path | None:
     return None
 
 
-def create_dmg_with_create_dmg(
-    app_bundle: Path,
-    dmg_path: Path,
-    version: str
-) -> None:
+def create_dmg_with_create_dmg(app_bundle: Path, dmg_path: Path, version: str) -> None:
     """
     Create DMG using create-dmg tool.
 
@@ -68,23 +62,24 @@ def create_dmg_with_create_dmg(
 
     command = [
         "create-dmg",
-        "--volname", volume_name,
-        "--window-size", "600", "400",
-        "--icon-size", "80",
-        "--app-drop-link", "400", "200",
+        "--volname",
+        volume_name,
+        "--window-size",
+        "600",
+        "400",
+        "--icon-size",
+        "80",
+        "--app-drop-link",
+        "400",
+        "200",
         str(dmg_path),
-        str(app_bundle)
+        str(app_bundle),
     ]
 
     logger.info(f"Running create-dmg: {' '.join(command)}")
 
     try:
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
 
         if result.stdout:
             logger.info(f"create-dmg output:\n{result.stdout}")
@@ -95,16 +90,10 @@ def create_dmg_with_create_dmg(
         logger.error(f"create-dmg failed with exit code {e.returncode}")
         logger.error(f"stdout: {e.stdout}")
         logger.error(f"stderr: {e.stderr}")
-        raise RuntimeError(
-            f"create-dmg failed: {e.stderr}"
-        ) from e
+        raise RuntimeError(f"create-dmg failed: {e.stderr}") from e
 
 
-def create_dmg_with_hdiutil(
-    app_bundle: Path,
-    dmg_path: Path,
-    version: str
-) -> None:
+def create_dmg_with_hdiutil(app_bundle: Path, dmg_path: Path, version: str) -> None:
     """
     Create DMG using hdiutil (macOS built-in tool).
 
@@ -141,21 +130,19 @@ def create_dmg_with_hdiutil(
         command = [
             "hdiutil",
             "create",
-            "-volname", volume_name,
-            "-srcfolder", str(temp_dir),
+            "-volname",
+            volume_name,
+            "-srcfolder",
+            str(temp_dir),
             "-ov",  # Overwrite if exists
-            "-format", "UDZO",  # Compressed
-            str(dmg_path)
+            "-format",
+            "UDZO",  # Compressed
+            str(dmg_path),
         ]
 
         logger.info(f"Running hdiutil: {' '.join(command)}")
 
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
 
         if result.stdout:
             logger.info(f"hdiutil output:\n{result.stdout}")
@@ -166,9 +153,7 @@ def create_dmg_with_hdiutil(
         logger.error(f"hdiutil failed with exit code {e.returncode}")
         logger.error(f"stdout: {e.stdout}")
         logger.error(f"stderr: {e.stderr}")
-        raise RuntimeError(
-            f"hdiutil failed: {e.stderr}"
-        ) from e
+        raise RuntimeError(f"hdiutil failed: {e.stderr}") from e
 
     finally:
         # Clean up temporary directory
@@ -177,11 +162,7 @@ def create_dmg_with_hdiutil(
             shutil.rmtree(temp_dir)
 
 
-def build_macos_installer(
-    dist_dir: Path,
-    version: str,
-    output_dir: Path
-) -> Path:
+def build_macos_installer(dist_dir: Path, version: str, output_dir: Path) -> Path:
     """
     Build macOS DMG installer.
 
@@ -204,10 +185,9 @@ def build_macos_installer(
     logger.info(f"Output directory: {output_dir}")
 
     # Validate version format to prevent command injection
-    if not re.match(r'^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$', version):
+    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$", version):
         raise ValueError(
-            f"Invalid version format: {version}. "
-            "Expected format: X.Y.Z or X.Y.Z-suffix"
+            f"Invalid version format: {version}. Expected format: X.Y.Z or X.Y.Z-suffix"
         )
 
     # Verify running on macOS
@@ -216,9 +196,7 @@ def build_macos_installer(
     # Verify .app bundle exists
     app_bundle = dist_dir / "OpenBoard.app"
     if not app_bundle.exists():
-        raise FileNotFoundError(
-            f".app bundle not found: {app_bundle}"
-        )
+        raise FileNotFoundError(f".app bundle not found: {app_bundle}")
 
     logger.info(f"Verified .app bundle: {app_bundle}")
 
@@ -240,9 +218,7 @@ def build_macos_installer(
 
     # Verify DMG was created
     if not dmg_path.exists():
-        raise RuntimeError(
-            f"DMG was not created at expected location: {dmg_path}"
-        )
+        raise RuntimeError(f"DMG was not created at expected location: {dmg_path}")
 
     logger.info(f"Successfully created macOS DMG installer: {dmg_path}")
     return dmg_path
@@ -257,7 +233,7 @@ def main() -> None:
     """
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     # Example paths for testing

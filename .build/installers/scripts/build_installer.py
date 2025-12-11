@@ -59,6 +59,7 @@ def get_version_from_pyproject() -> str:
         # Use tomllib
         with open(pyproject_path, "rb") as f:
             import tomllib
+
             data = tomllib.load(f)
 
         if "project" not in data or "version" not in data["project"]:
@@ -96,7 +97,7 @@ def build_for_platform(
     installer_types: list[str] | None,
     dist_dir: Path,
     version: str,
-    output_dir: Path
+    output_dir: Path,
 ) -> list[Path]:
     """
     Build installers for specified platform.
@@ -221,12 +222,12 @@ Examples:
   python build_installer.py --version 1.0.0
   python build_installer.py --type deb
   python build_installer.py --type deb,rpm
-        """
+        """,
     )
 
     parser.add_argument(
         "--version",
-        help="Version string for installer (default: read from pyproject.toml)"
+        help="Version string for installer (default: read from pyproject.toml)",
     )
 
     parser.add_argument(
@@ -235,13 +236,13 @@ Examples:
             "Installer type(s) to build (comma-separated). "
             "Valid: innosetup (Windows), dmg (macOS), deb/rpm (Linux). "
             "Default: all types for current platform"
-        )
+        ),
     )
 
     parser.add_argument(
         "--dist-dir",
         type=Path,
-        help="Path to PyInstaller dist/ directory (default: ../../dist from script)"
+        help="Path to PyInstaller dist/ directory (default: ../../dist from script)",
     )
 
     parser.add_argument(
@@ -250,22 +251,17 @@ Examples:
         help=(
             "Directory for output installers "
             "(default: ../../dist/installers from script)"
-        )
+        ),
     )
 
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
 
     # Configure logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     logger.info("=" * 60)
@@ -321,11 +317,7 @@ Examples:
         logger.info("-" * 60)
 
         created_installers = build_for_platform(
-            platform_name,
-            installer_types,
-            dist_dir,
-            version,
-            output_dir
+            platform_name, installer_types, dist_dir, version, output_dir
         )
 
         # Report results

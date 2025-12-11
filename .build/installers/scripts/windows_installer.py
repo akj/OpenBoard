@@ -46,11 +46,7 @@ def find_inno_setup_compiler() -> Path | None:
     return None
 
 
-def build_windows_installer(
-    dist_dir: Path,
-    version: str,
-    output_dir: Path
-) -> Path:
+def build_windows_installer(dist_dir: Path, version: str, output_dir: Path) -> Path:
     """
     Build Windows installer using Inno Setup.
 
@@ -72,10 +68,9 @@ def build_windows_installer(
     logger.info(f"Output directory: {output_dir}")
 
     # Validate version format to prevent command injection
-    if not re.match(r'^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$', version):
+    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$", version):
         raise ValueError(
-            f"Invalid version format: {version}. "
-            "Expected format: X.Y.Z or X.Y.Z-suffix"
+            f"Invalid version format: {version}. Expected format: X.Y.Z or X.Y.Z-suffix"
         )
 
     # Find Inno Setup compiler
@@ -100,9 +95,7 @@ def build_windows_installer(
     innosetup_script = script_dir.parent / "windows" / "innosetup.iss"
 
     if not innosetup_script.exists():
-        raise FileNotFoundError(
-            f"Inno Setup script not found: {innosetup_script}"
-        )
+        raise FileNotFoundError(f"Inno Setup script not found: {innosetup_script}")
 
     logger.info(f"Using Inno Setup script: {innosetup_script}")
 
@@ -115,18 +108,13 @@ def build_windows_installer(
         str(iscc_exe),
         f"/DAppVersion={version}",
         f"/O{output_dir}",
-        str(innosetup_script)
+        str(innosetup_script),
     ]
 
     logger.info(f"Running Inno Setup compiler: {' '.join(command)}")
 
     try:
-        result = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
 
         # Log compiler output
         if result.stdout:
@@ -138,9 +126,7 @@ def build_windows_installer(
         logger.error(f"Inno Setup compilation failed with exit code {e.returncode}")
         logger.error(f"stdout: {e.stdout}")
         logger.error(f"stderr: {e.stderr}")
-        raise RuntimeError(
-            f"Inno Setup compilation failed: {e.stderr}"
-        ) from e
+        raise RuntimeError(f"Inno Setup compilation failed: {e.stderr}") from e
 
     # Verify output installer exists
     expected_installer = output_dir / f"OpenBoard-v{version}-windows-x64-setup.exe"
@@ -163,7 +149,7 @@ def main() -> None:
     """
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     # Example paths for testing

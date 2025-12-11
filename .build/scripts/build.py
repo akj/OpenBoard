@@ -447,12 +447,16 @@ class OpenBoardBuilder:
         self.logger.info("Building platform-specific installer...")
 
         # Path to installer build script
-        installer_script = self.project_root / ".build" / "installers" / "scripts" / "build_installer.py"
+        installer_script = (
+            self.project_root
+            / ".build"
+            / "installers"
+            / "scripts"
+            / "build_installer.py"
+        )
 
         if not installer_script.exists():
-            raise BuildError(
-                f"Installer build script not found at {installer_script}"
-            )
+            raise BuildError(f"Installer build script not found at {installer_script}")
 
         # Build command
         command = ["uv", "run", "python", str(installer_script)]

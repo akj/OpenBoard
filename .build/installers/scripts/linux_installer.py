@@ -13,11 +13,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def build_deb_package(
-    dist_dir: Path,
-    version: str,
-    output_dir: Path
-) -> Path:
+def build_deb_package(dist_dir: Path, version: str, output_dir: Path) -> Path:
     """
     Build Debian package.
 
@@ -36,10 +32,9 @@ def build_deb_package(
     logger.info(f"Building DEB package version {version}")
 
     # Validate version format to prevent command injection
-    if not re.match(r'^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$', version):
+    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$", version):
         raise ValueError(
-            f"Invalid version format: {version}. "
-            "Expected format: X.Y.Z or X.Y.Z-suffix"
+            f"Invalid version format: {version}. Expected format: X.Y.Z or X.Y.Z-suffix"
         )
 
     # Verify dpkg-deb is available
@@ -51,8 +46,7 @@ def build_deb_package(
     executable_path = executable_dir / "OpenBoard"
     if not executable_path.exists():
         raise FileNotFoundError(
-            f"Executable not found at {executable_path}. "
-            f"Run PyInstaller build first."
+            f"Executable not found at {executable_path}. Run PyInstaller build first."
         )
 
     logger.info(f"Found executable at {executable_path}")
@@ -129,7 +123,7 @@ def build_deb_package(
             ["dpkg-deb", "--build", str(temp_dir), str(output_path)],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if not output_path.exists():
@@ -148,11 +142,7 @@ def build_deb_package(
             logger.info(f"Cleaned up temporary directory: {temp_dir}")
 
 
-def build_rpm_package(
-    dist_dir: Path,
-    version: str,
-    output_dir: Path
-) -> Path | None:
+def build_rpm_package(dist_dir: Path, version: str, output_dir: Path) -> Path | None:
     """
     Build RPM package.
 
@@ -171,10 +161,9 @@ def build_rpm_package(
     logger.info(f"Building RPM package version {version}")
 
     # Validate version format to prevent command injection
-    if not re.match(r'^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$', version):
+    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$", version):
         raise ValueError(
-            f"Invalid version format: {version}. "
-            "Expected format: X.Y.Z or X.Y.Z-suffix"
+            f"Invalid version format: {version}. Expected format: X.Y.Z or X.Y.Z-suffix"
         )
 
     # Check if rpmbuild is available
@@ -190,8 +179,7 @@ def build_rpm_package(
     executable_path = executable_dir / "OpenBoard"
     if not executable_path.exists():
         raise FileNotFoundError(
-            f"Executable not found at {executable_path}. "
-            f"Run PyInstaller build first."
+            f"Executable not found at {executable_path}. Run PyInstaller build first."
         )
 
     logger.info(f"Found executable at {executable_path}")
@@ -237,7 +225,9 @@ def build_rpm_package(
         logger.info("Set executable permissions")
 
         # Copy desktop file to SOURCES for spec file reference
-        desktop_src = Path(__file__).parent.parent / "linux" / "debian" / "openboard.desktop"
+        desktop_src = (
+            Path(__file__).parent.parent / "linux" / "debian" / "openboard.desktop"
+        )
         if desktop_src.exists():
             shutil.copy2(desktop_src, build_root / "SOURCES" / "openboard.desktop")
             # Also copy to buildroot for %files section
@@ -259,13 +249,15 @@ def build_rpm_package(
             [
                 "rpmbuild",
                 "-bb",
-                "--define", f"_topdir {build_root}",
-                "--buildroot", str(install_root),
-                str(spec_file)
+                "--define",
+                f"_topdir {build_root}",
+                "--buildroot",
+                str(install_root),
+                str(spec_file),
             ],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
         )
 
         # Find the built RPM
@@ -299,7 +291,7 @@ if __name__ == "__main__":
     # Configure logging for standalone execution
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     # Example usage
