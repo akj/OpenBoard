@@ -74,42 +74,6 @@ jobs:
         restore-keys: |
           apt-validate-${{ runner.os }}-
 
-    - name: Cache Homebrew packages (macOS)
-      if: runner.os == 'macOS'
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/Library/Caches/Homebrew
-          /usr/local/Cellar/stockfish
-          /opt/homebrew/Cellar/stockfish
-        key: brew-validate-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-validate-executable.yml') }}
-        restore-keys: |
-          brew-validate-${{ runner.os }}-stockfish-
-          brew-validate-${{ runner.os }}-
-
-    - name: Install Stockfish (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y stockfish
-
-    - name: Install Stockfish (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew update
-        brew install stockfish
-
-    - name: Install Stockfish (Windows)
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        $url = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
-        $output = "stockfish.zip"
-        Invoke-WebRequest -Uri $url -OutFile $output
-        Expand-Archive -Path $output -DestinationPath "stockfish"
-        $stockfishPath = Join-Path (Get-Location) "stockfish"
-        echo "$stockfishPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
     - name: Download artifact
       uses: actions/download-artifact@v5
       with:
