@@ -39,7 +39,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
       with:
-        fetch-depth: 0  # Full history for git metadata in build
+        fetch-depth: 1  # Only need current commit for build metadata
 
     - name: Set up Python ${{ inputs.python-version }}
       uses: actions/setup-python@v5
@@ -50,7 +50,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .venv
-        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ github.run_id }}
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
         restore-keys: |
           venv-${{ runner.os }}-py${{ inputs.python-version }}-
 
@@ -72,7 +72,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /var/cache/apt/archives
-        key: apt-build-${{ runner.os }}-${{ github.run_number }}
+        key: apt-build-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-build.yml') }}
         restore-keys: |
           apt-build-${{ runner.os }}-
 
@@ -84,7 +84,7 @@ jobs:
           ~/Library/Caches/Homebrew
           /usr/local/Cellar/stockfish
           /opt/homebrew/Cellar/stockfish
-        key: brew-build-${{ runner.os }}-stockfish-${{ github.run_number }}
+        key: brew-build-${{ runner.os }}-stockfish-${{ hashFiles('.github/workflows/setup-build.yml') }}
         restore-keys: |
           brew-build-${{ runner.os }}-stockfish-
           brew-build-${{ runner.os }}-
@@ -92,10 +92,14 @@ jobs:
     - name: Cache PyInstaller build
       uses: actions/cache@v4
       with:
-        path: build/__pycache__
-        key: pyinstaller-${{ runner.os }}-${{ github.run_number }}
+        path: |
+          build/
+          !build/scripts/
+          !build/hooks/
+          !build/validation/
+        key: pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock', 'openboard.spec', '.build/pyinstaller_spec.py') }}
         restore-keys: |
-          pyinstaller-${{ runner.os }}-
+          pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-
 
     - name: Install system dependencies and Stockfish (Ubuntu)
       if: runner.os == 'Linux'
