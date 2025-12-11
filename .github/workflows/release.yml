@@ -77,10 +77,51 @@ jobs:
       contents: read
       actions: read
 
+  # Build installers (only if validations pass)
+  build-installer-linux:
+    name: Build Linux Installers
+    needs: validate-linux
+    uses: ./.github/workflows/setup-build-installer.yml
+    with:
+      os: ubuntu-latest
+      artifact-name: openboard-linux
+      installer-type: deb,rpm
+    permissions:
+      contents: read
+      actions: read
+
+  build-installer-macos:
+    name: Build macOS Installer
+    needs: validate-macos
+    uses: ./.github/workflows/setup-build-installer.yml
+    with:
+      os: macos-latest
+      artifact-name: openboard-macos
+      installer-type: dmg
+    permissions:
+      contents: read
+      actions: read
+
+  build-installer-windows:
+    name: Build Windows Installer
+    needs: validate-windows
+    uses: ./.github/workflows/setup-build-installer.yml
+    with:
+      os: windows-latest
+      artifact-name: openboard-windows
+      installer-type: innosetup
+    permissions:
+      contents: read
+      actions: read
+
   # Create GitHub release with all artifacts (only if validations pass)
   create-release:
     name: Create GitHub Release
-    needs: [build-linux, build-macos, build-windows, validate-linux, validate-macos, validate-windows]
+    needs: [
+      build-linux, build-macos, build-windows,
+      validate-linux, validate-macos, validate-windows,
+      build-installer-linux, build-installer-macos, build-installer-windows
+    ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,7 +143,13 @@ jobs:
       run: |
         mkdir -p release-files
 
-        # Copy executables
+        # Copy installers (primary distribution method)
+        cp release-artifacts/openboard-linux-installer/*.deb release-files/ 2>/dev/null || echo "No DEB package found"
+        cp release-artifacts/openboard-linux-installer/*.rpm release-files/ 2>/dev/null || echo "No RPM package found"
+        cp release-artifacts/openboard-macos-installer/*.dmg release-files/ 2>/dev/null || echo "No DMG found"
+        cp release-artifacts/openboard-windows-installer/*.exe release-files/ 2>/dev/null || echo "No Windows installer found"
+
+        # Copy archives (fallback/portable distribution method)
         cp release-artifacts/openboard-linux/*.tar.gz release-files/
         cp release-artifacts/openboard-macos/*.tar.gz release-files/
         cp release-artifacts/openboard-windows/*.zip release-files/
@@ -135,6 +182,10 @@ jobs:
         prerelease: false
         generate_release_notes: true
         files: |
+          release-files/*.deb
+          release-files/*.rpm
+          release-files/*.dmg
+          release-files/*.exe
           release-files/*.tar.gz
           release-files/*.zip
           release-files/SHA256SUMS
@@ -144,42 +195,71 @@ jobs:
         body: |
           ## OpenBoard ${{ steps.version.outputs.version }}
 
-          ### Downloads
+          ### Downloads (Recommended Installers)
 
+          - **Windows**: `OpenBoard-v{version}-windows-x64-setup.exe` - Professional installer with Start Menu integration
+          - **macOS**: `OpenBoard-v{version}-macos-x64.dmg` - Drag-to-Applications installer
+          - **Linux (Debian/Ubuntu)**: `openboard_{version}_amd64.deb` - Native package manager support
+          - **Linux (Fedora/RHEL)**: `openboard-{version}-1.x86_64.rpm` - RPM package manager support
+
+          ### Portable Archives (Advanced Users)
+
+          If you prefer portable versions without installation:
           - **Linux**: `OpenBoard-linux-x64.tar.gz`
           - **macOS**: `OpenBoard-macos-x64.tar.gz`
           - **Windows**: `OpenBoard-windows-x64.zip`
 
           ### Installation
 
-          #### Linux
+          #### Windows
+          Run the installer (`OpenBoard-v{version}-windows-x64-setup.exe`) and follow the setup wizard.
+          Optionally create desktop shortcut and associate .PGN files.
+
+          #### macOS
+          1. Open the DMG file
+          2. Drag OpenBoard.app to the Applications folder
+          3. Launch from Applications or Launchpad
+
+          #### Linux (Debian/Ubuntu)
+          ```bash
+          sudo dpkg -i openboard_{version}_amd64.deb
+          sudo apt-get install -f  # Install dependencies if needed
+          ```
+
+          #### Linux (Fedora/RHEL)
+          ```bash
+          sudo rpm -ivh openboard-{version}-1.x86_64.rpm
+          ```
+
+          #### Portable Archives (Linux)
           ```bash
           tar -xzf OpenBoard-linux-x64.tar.gz
           cd OpenBoard
           ./OpenBoard
           ```
 
-          #### macOS
+          #### Portable Archives (macOS)
           ```bash
           tar -xzf OpenBoard-macos-x64.tar.gz
-          # Move to Applications or run directly
           open OpenBoard.app
           ```
 
-          #### Windows
+          #### Portable Archives (Windows)
           Extract the ZIP file and run `OpenBoard.exe`
 
           ### Verification
 
-          Verify the download integrity using the provided SHA256 checksums:
+          Verify download integrity using SHA256 checksums:
           ```bash
           sha256sum -c SHA256SUMS
           ```
 
           ### Requirements
 
-          - Python 3.12 or higher (bundled in executables)
-          - Stockfish chess engine (optional, can be installed separately)
+          - **Linux**: GTK 3, speech-dispatcher, espeak-ng (handled by package managers)
+          - **macOS**: macOS 12 or later
+          - **Windows**: Windows 10 or later
+          - **Optional**: Stockfish chess engine (can be installed separately)
 
           ---
 

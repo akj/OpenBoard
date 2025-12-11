@@ -436,6 +436,45 @@ class OpenBoardBuilder:
             self.logger.error(f"Build validation failed: {e}")
             raise
 
+    def build_installer(self, installer_type: str | None = None) -> None:
+        """
+        Build platform-specific installer.
+
+        Args:
+            installer_type: Type of installer to build (auto-detected if None).
+                           Supported: 'innosetup', 'dmg', 'deb', 'rpm'
+        """
+        self.logger.info("Building platform-specific installer...")
+
+        # Path to installer build script
+        installer_script = self.project_root / ".build" / "installers" / "scripts" / "build_installer.py"
+
+        if not installer_script.exists():
+            raise BuildError(
+                f"Installer build script not found at {installer_script}"
+            )
+
+        # Build command
+        command = ["uv", "run", "python", str(installer_script)]
+
+        # Add version from project metadata
+        command.extend(["--version", self.project_metadata["version"]])
+
+        # Add installer type if specified
+        if installer_type:
+            command.extend(["--type", installer_type])
+
+        # Add verbose flag if debug logging
+        if self.logger.level == logging.DEBUG:
+            command.append("--verbose")
+
+        try:
+            self._run_command(command)
+            self.logger.info("Installer build completed successfully!")
+        except BuildError as e:
+            self.logger.error(f"Installer build failed: {e}")
+            raise
+
 
 def _parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -480,6 +519,18 @@ def _parse_args() -> argparse.Namespace:
         help="Enable verbose logging",
     )
 
+    parser.add_argument(
+        "--build-installer",
+        action="store_true",
+        help="Build platform-specific installer after executable build",
+    )
+
+    parser.add_argument(
+        "--installer-type",
+        type=str,
+        help="Specify installer type (innosetup, dmg, deb, rpm). Auto-detected if not specified.",
+    )
+
     return parser.parse_args()
 
 
@@ -517,6 +568,10 @@ def main() -> NoReturn:
                     builder.run_build_validation(executable)
                 else:
                     builder.run_build_validation()
+
+            # Build installer if requested
+            if args.build_installer:
+                builder.build_installer(args.installer_type)
 
         print("\nBuild completed successfully!")
         sys.exit(0)

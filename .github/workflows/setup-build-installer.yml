@@ -1,0 +1,153 @@
+name: Build Installer
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      os:
+        required: true
+        type: string
+        description: 'Operating system (ubuntu-latest, windows-latest, macos-latest)'
+      artifact-name:
+        required: true
+        type: string
+        description: 'Name of build artifact to download (e.g., openboard-linux)'
+      installer-type:
+        required: false
+        type: string
+        description: 'Installer type(s) to build (e.g., deb, innosetup, dmg). Comma-separated for multiple.'
+      artifact-retention-days:
+        required: false
+        type: number
+        default: 90
+        description: 'Number of days to retain artifacts'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    name: Build installer on ${{ inputs.os }}
+    runs-on: ${{ inputs.os }}
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 1  # Only need current commit for installer metadata
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen --group dev
+
+    - name: Install Inno Setup (Windows)
+      if: runner.os == 'Windows'
+      run: choco install innosetup -y
+
+    - name: Install create-dmg (macOS)
+      if: runner.os == 'macOS'
+      run: brew install create-dmg
+
+    - name: Install RPM build tools (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y rpm
+
+    - name: Download build artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ./artifacts
+
+    - name: Determine archive name and platform
+      id: paths
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          echo "archive_name=OpenBoard-windows-x64.zip" >> $GITHUB_OUTPUT
+          echo "platform=windows" >> $GITHUB_OUTPUT
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          echo "archive_name=OpenBoard-macos-x64.tar.gz" >> $GITHUB_OUTPUT
+          echo "platform=macos" >> $GITHUB_OUTPUT
+        else
+          echo "archive_name=OpenBoard-linux-x64.tar.gz" >> $GITHUB_OUTPUT
+          echo "platform=linux" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Extract archive (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        mkdir -p dist
+        tar -xzf ./artifacts/${{ steps.paths.outputs.archive_name }} -C dist/
+
+    - name: Extract archive (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        mkdir -p dist
+        tar -xzf ./artifacts/${{ steps.paths.outputs.archive_name }} -C dist/
+
+    - name: Extract archive (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path dist
+        Expand-Archive -Path ./artifacts/${{ steps.paths.outputs.archive_name }} -DestinationPath dist/
+
+    - name: Build installer
+      shell: bash
+      run: |
+        if [[ -n "${{ inputs.installer-type }}" ]]; then
+          uv run python .build/installers/scripts/build_installer.py --type "${{ inputs.installer-type }}" --verbose
+        else
+          uv run python .build/installers/scripts/build_installer.py --verbose
+        fi
+
+    - name: List created installers
+      shell: bash
+      run: |
+        echo "Created installers:"
+        ls -lh dist/installers/
+
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: openboard-${{ steps.paths.outputs.platform }}-installer
+        path: dist/installers/*
+        retention-days: ${{ inputs.artifact-retention-days }}
+        if-no-files-found: error
