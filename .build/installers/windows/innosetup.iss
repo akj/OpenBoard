@@ -29,6 +29,9 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
+; Icons
+SetupIconFile=..\..\..\assets\icons\openboard.ico
+
 ; Uninstaller
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}

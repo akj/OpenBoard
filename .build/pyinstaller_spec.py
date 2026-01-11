@@ -36,25 +36,8 @@ except NameError:
     BASE_DIR = Path.cwd()
 
 # Hidden imports required for dynamic loading
+# Note: OpenBoard-specific imports are handled by hook-openboard.py
 HIDDEN_IMPORTS = [
-    # Core OpenBoard modules
-    "openboard",
-    "openboard.views.views",
-    "openboard.models.game",
-    "openboard.models.board_state",
-    "openboard.models.game_mode",
-    "openboard.models.opening_book",
-    "openboard.controllers.chess_controller",
-    "openboard.engine.engine_adapter",
-    "openboard.engine.engine_detection",
-    "openboard.engine.stockfish_manager",
-    "openboard.engine.downloader",
-    "openboard.config.settings",
-    "openboard.config.keyboard_config",
-    "openboard.logging_config",
-    "openboard.exceptions",
-    "openboard.views.game_dialogs",
-    "openboard.views.engine_dialogs",
     # wxPython modules that may not be auto-detected
     "wx",
     "wx.lib",
@@ -145,7 +128,7 @@ DATA_FILES = [
 EXCLUDE_BINARIES = []
 
 # Hook directories
-HOOK_DIRS = [str(BASE_DIR / "build" / "hooks")]
+HOOK_DIRS = [str(BASE_DIR / ".build" / "hooks")]
 
 # Analysis configuration
 a = Analysis(
@@ -200,9 +183,9 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Windows-specific options
-    icon=None,  # Add icon file path if available
-    version=None,  # Add version info file if available
+    # Platform-specific options
+    icon=str(BASE_DIR / "assets" / "icons" / "openboard.ico") if IS_WINDOWS else None,
+    version=None,  # TODO: Add version info file for Windows
 )
 
 # Bundle configuration (for macOS app bundle or Linux directory)
@@ -222,7 +205,7 @@ if IS_MACOS:
     app = BUNDLE(
         coll,
         name=f"{APP_NAME}.app",
-        icon=None,  # Add icon file path if available
+        icon=str(BASE_DIR / "assets" / "icons" / "openboard.icns"),
         bundle_identifier=f"com.openboard.{APP_NAME.lower()}",
         version=APP_VERSION,
         info_plist={

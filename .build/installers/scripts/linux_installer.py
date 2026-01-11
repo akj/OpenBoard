@@ -68,10 +68,12 @@ def build_deb_package(dist_dir: Path, version: str, output_dir: Path) -> Path:
         debian_dir = temp_dir / "DEBIAN"
         opt_dir = temp_dir / "opt" / "openboard"
         desktop_dir = temp_dir / "usr" / "share" / "applications"
+        icon_dir = temp_dir / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
 
         debian_dir.mkdir(parents=True)
         opt_dir.mkdir(parents=True)
         desktop_dir.mkdir(parents=True)
+        icon_dir.mkdir(parents=True)
 
         logger.info("Created package directory structure")
 
@@ -102,12 +104,29 @@ def build_deb_package(dist_dir: Path, version: str, output_dir: Path) -> Path:
         shutil.copy2(postinst_src, debian_dir / "postinst")
         logger.info("Copied postinst script")
 
-        # Copy desktop file
-        desktop_src = templates_dir / "openboard.desktop"
+        # Copy desktop file from common directory
+        desktop_src = (
+            Path(__file__).parent.parent / "linux" / "common" / "openboard.desktop"
+        )
         if not desktop_src.exists():
             raise FileNotFoundError(f"Desktop file not found: {desktop_src}")
         shutil.copy2(desktop_src, desktop_dir / "openboard.desktop")
         logger.info("Copied desktop file")
+
+        # Copy icon file
+        icon_src = (
+            Path(__file__).parent.parent.parent.parent
+            / "assets"
+            / "icons"
+            / "openboard.png"
+        )
+        if icon_src.exists():
+            shutil.copy2(icon_src, icon_dir / "openboard.png")
+            logger.info("Copied icon file")
+        else:
+            logger.warning(
+                f"Icon file not found at {icon_src}, skipping icon installation"
+            )
 
         # Set proper permissions
         (debian_dir / "postinst").chmod(0o755)
@@ -208,9 +227,13 @@ def build_rpm_package(dist_dir: Path, version: str, output_dir: Path) -> Path | 
         install_root = build_root / "BUILDROOT" / f"openboard-{version}-1.x86_64"
         opt_dir = install_root / "opt" / "openboard"
         desktop_dir = install_root / "usr" / "share" / "applications"
+        icon_dir = (
+            install_root / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+        )
 
         opt_dir.mkdir(parents=True)
         desktop_dir.mkdir(parents=True)
+        icon_dir.mkdir(parents=True)
 
         # Copy executable and all files to buildroot
         logger.info(f"Copying files from {executable_dir} to {opt_dir}")
@@ -224,15 +247,31 @@ def build_rpm_package(dist_dir: Path, version: str, output_dir: Path) -> Path | 
         (opt_dir / "OpenBoard").chmod(0o755)
         logger.info("Set executable permissions")
 
-        # Copy desktop file to SOURCES for spec file reference
+        # Copy desktop file from common directory to SOURCES for spec file reference
         desktop_src = (
-            Path(__file__).parent.parent / "linux" / "debian" / "openboard.desktop"
+            Path(__file__).parent.parent / "linux" / "common" / "openboard.desktop"
         )
         if desktop_src.exists():
             shutil.copy2(desktop_src, build_root / "SOURCES" / "openboard.desktop")
             # Also copy to buildroot for %files section
             shutil.copy2(desktop_src, desktop_dir / "openboard.desktop")
             logger.info("Copied desktop file")
+
+        # Copy icon file to SOURCES and buildroot
+        icon_src = (
+            Path(__file__).parent.parent.parent.parent
+            / "assets"
+            / "icons"
+            / "openboard.png"
+        )
+        if icon_src.exists():
+            shutil.copy2(icon_src, build_root / "SOURCES" / "openboard.png")
+            shutil.copy2(icon_src, icon_dir / "openboard.png")
+            logger.info("Copied icon file")
+        else:
+            logger.warning(
+                f"Icon file not found at {icon_src}, skipping icon installation"
+            )
 
         # Read and replace version in spec file
         spec_content = spec_template.read_text()

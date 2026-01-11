@@ -44,13 +44,13 @@ mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps
 # Install desktop file
 install -D -m 644 openboard.desktop %{buildroot}/usr/share/applications/openboard.desktop
 
-# Install icon (if available)
-# install -D -m 644 openboard.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/openboard.png
+# Install icon
+install -D -m 644 openboard.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/openboard.png
 
 %files
 /opt/openboard/*
 /usr/share/applications/openboard.desktop
-# /usr/share/icons/hicolor/256x256/apps/openboard.png
+/usr/share/icons/hicolor/256x256/apps/openboard.png
 
 %post
 # Update desktop database

@@ -11,63 +11,16 @@ import platform
 import sys
 from pathlib import Path
 
+# Add parent directory to path to import build utilities
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from utils.version import get_version_from_pyproject
+
 # Import platform-specific builders
 from linux_installer import build_deb_package, build_rpm_package
 from macos_installer import build_macos_installer
 from windows_installer import build_windows_installer
 
 logger = logging.getLogger(__name__)
-
-
-def get_version_from_pyproject() -> str:
-    """
-    Read version from pyproject.toml.
-
-    Returns:
-        Version string
-
-    Raises:
-        FileNotFoundError: If pyproject.toml not found
-        RuntimeError: If version cannot be extracted
-    """
-    # Navigate up to project root from scripts directory
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent.parent
-    pyproject_path = project_root / "pyproject.toml"
-
-    if not pyproject_path.exists():
-        raise FileNotFoundError(f"pyproject.toml not found at {pyproject_path}")
-
-    logger.info(f"Reading version from {pyproject_path}")
-
-    # Try using tomllib (Python 3.11+) first, fallback to manual parsing
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        # Python < 3.11, use manual parsing
-        content = pyproject_path.read_text()
-        for line in content.splitlines():
-            if line.strip().startswith("version"):
-                # Parse line like: version = "0.1.0"
-                parts = line.split("=", 1)
-                if len(parts) == 2:
-                    version = parts[1].strip().strip('"').strip("'")
-                    logger.info(f"Extracted version: {version}")
-                    return version
-        raise RuntimeError("Could not find version in pyproject.toml")
-    else:
-        # Use tomllib
-        with open(pyproject_path, "rb") as f:
-            import tomllib
-
-            data = tomllib.load(f)
-
-        if "project" not in data or "version" not in data["project"]:
-            raise RuntimeError("Version not found in pyproject.toml [project] section")
-
-        version = data["project"]["version"]
-        logger.info(f"Extracted version: {version}")
-        return version
 
 
 def detect_platform() -> str:

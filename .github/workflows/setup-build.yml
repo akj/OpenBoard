@@ -120,8 +120,18 @@ jobs:
         brew update
         brew install stockfish
 
-    - name: Install system dependencies and Stockfish (Windows)
+    - name: Cache Stockfish (Windows)
       if: runner.os == 'Windows'
+      id: cache-stockfish-windows
+      uses: actions/cache@v4
+      with:
+        path: stockfish/
+        key: stockfish-windows-x86-64-avx2-${{ hashFiles('.github/workflows/setup-build.yml') }}
+        restore-keys: |
+          stockfish-windows-x86-64-avx2-
+
+    - name: Install system dependencies and Stockfish (Windows)
+      if: runner.os == 'Windows' && steps.cache-stockfish-windows.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         # Download and install Stockfish for Windows
@@ -129,6 +139,11 @@ jobs:
         $output = "stockfish.zip"
         Invoke-WebRequest -Uri $url -OutFile $output
         Expand-Archive -Path $output -DestinationPath "stockfish"
+
+    - name: Add Stockfish to PATH (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
         $stockfishPath = Join-Path (Get-Location) "stockfish"
         echo "$stockfishPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 

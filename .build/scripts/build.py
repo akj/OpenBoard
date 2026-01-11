@@ -18,6 +18,10 @@ import tomllib
 from pathlib import Path
 from typing import Dict, NoReturn
 
+# Add parent directory to path to import build utilities
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.version import get_version_from_pyproject
+
 
 class BuildError(Exception):
     """Raised when a build operation fails."""
@@ -74,6 +78,10 @@ class OpenBoardBuilder:
     def _load_project_metadata(self) -> Dict[str, str]:
         """Load project metadata from pyproject.toml."""
         try:
+            # Use shared version utility
+            version = get_version_from_pyproject(self.pyproject_file)
+
+            # Load other metadata
             with open(self.pyproject_file, "rb") as f:
                 pyproject_data = tomllib.load(f)
 
@@ -81,7 +89,7 @@ class OpenBoardBuilder:
 
             return {
                 "name": project_section.get("name", "openboard"),
-                "version": project_section.get("version", "unknown"),
+                "version": version,
                 "description": project_section.get("description", ""),
                 "requires_python": project_section.get("requires-python", ""),
             }
