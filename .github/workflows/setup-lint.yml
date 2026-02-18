@@ -13,11 +13,11 @@ on:
         type: string
         default: '0.8.19'
         description: 'UV version to use'
-      run-pyright:
+      run-type-check:
         required: false
         type: boolean
         default: true
-        description: 'Whether to run pyright type checking'
+        description: 'Whether to run ty type checking'
 
 # Minimal permissions for reusable workflow
 permissions:
@@ -79,6 +79,6 @@ jobs:
         uv run ruff format --check .
 
     - name: Run type checking
-      if: inputs.run-pyright
+      if: inputs.run-type-check
       run: |
-        uv run python -m pyright
+        uv run python -m ty
