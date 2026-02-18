@@ -26,6 +26,12 @@ def test_boardstate_make_and_undo_move():
     assert bs.board.move_stack[-1] == move
     bs.undo_move()
     assert len(bs.board.move_stack) == 0
+    # Verify board squares reflect the undo, not just stack metadata.
+    assert bs.board.piece_at(chess.E4) is None
+    piece_at_e2 = bs.board.piece_at(chess.E2)
+    assert piece_at_e2 is not None
+    assert piece_at_e2.piece_type == chess.PAWN
+    assert piece_at_e2.color == chess.WHITE
 
 
 def test_boardstate_illegal_move():

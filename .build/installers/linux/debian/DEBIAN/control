@@ -1,0 +1,19 @@
+Package: openboard
+Version: {VERSION}
+Section: games
+Priority: optional
+Architecture: amd64
+Depends: libgtk-3-0, speech-dispatcher (>= 0.8), espeak-ng
+Maintainer: OpenBoard Project <team@openboard.org>
+Homepage: https://github.com/openboard/openboard
+Description: Accessible chess GUI with screen reader support
+ OpenBoard is an accessible, cross-platform chess GUI written in Python.
+ It uses wxPython for the GUI and provides keyboard navigation, screen
+ reader support, and UCI engine integration (specifically Stockfish).
+ .
+ Features:
+  * Full keyboard navigation
+  * Screen reader support via accessible-output3
+  * UCI chess engine support (Stockfish)
+  * Human vs Human, Human vs Computer, and Computer vs Computer modes
+  * Multiple difficulty levels

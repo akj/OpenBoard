@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chess board background -->
+  <rect width="256" height="256" fill="#2c3e50" rx="20"/>
+
+  <!-- Chess board pattern (simplified 4x4 visible squares) -->
+  <g transform="translate(32, 32)">
+    <!-- White squares -->
+    <rect x="0" y="0" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="96" y="0" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="48" y="48" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="144" y="48" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="0" y="96" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="96" y="96" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="48" y="144" width="48" height="48" fill="#ecf0f1"/>
+    <rect x="144" y="144" width="48" height="48" fill="#ecf0f1"/>
+
+    <!-- Black squares -->
+    <rect x="48" y="0" width="48" height="48" fill="#34495e"/>
+    <rect x="144" y="0" width="48" height="48" fill="#34495e"/>
+    <rect x="0" y="48" width="48" height="48" fill="#34495e"/>
+    <rect x="96" y="48" width="48" height="48" fill="#34495e"/>
+    <rect x="48" y="96" width="48" height="48" fill="#34495e"/>
+    <rect x="144" y="96" width="48" height="48" fill="#34495e"/>
+    <rect x="0" y="144" width="48" height="48" fill="#34495e"/>
+    <rect x="96" y="144" width="48" height="48" fill="#34495e"/>
+  </g>
+
+  <!-- Simple knight piece silhouette -->
+  <path d="M 128 80 L 140 90 L 145 100 L 145 120 L 140 130 L 120 135 L 110 130 L 108 120 L 110 100 L 120 85 Z"
+        fill="#3498db" stroke="#2980b9" stroke-width="2"/>
+
+  <!-- Accessibility symbol (ear icon) in corner -->
+  <g transform="translate(200, 200)">
+    <circle cx="0" cy="0" r="24" fill="#e74c3c" opacity="0.9"/>
+    <path d="M -8 -12 Q -12 -8 -12 0 Q -12 8 -8 12"
+          fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    <path d="M -4 -8 Q -6 -4 -6 0 Q -6 4 -4 8"
+          fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  </g>
+</svg>

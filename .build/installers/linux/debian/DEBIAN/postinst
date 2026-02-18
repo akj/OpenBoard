@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Update desktop database for .desktop file integration
+if command -v update-desktop-database &> /dev/null; then
+    update-desktop-database -q
+fi
+
+# Update icon cache
+if command -v gtk-update-icon-cache &> /dev/null; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
+# Update MIME database for .pgn file associations
+if command -v update-mime-database &> /dev/null; then
+    update-mime-database /usr/share/mime 2>/dev/null || true
+fi
+
+exit 0

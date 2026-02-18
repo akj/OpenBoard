@@ -1,0 +1,43 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - build
+  pull_request:
+    branches:
+      - main
+      - build
+
+# Cancel in-progress runs for the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions - read only
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    uses: ./.github/workflows/setup-lint.yml
+    permissions:
+      contents: read
+      actions: read
+
+  test:
+    name: Test Suite
+    uses: ./.github/workflows/setup-test.yml
+    permissions:
+      contents: read
+      actions: read
+
+  validate:
+    name: Build Validation
+    needs: [lint, test]
+    uses: ./.github/workflows/setup-validate.yml
+    permissions:
+      contents: read
+      actions: read

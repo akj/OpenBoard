@@ -1,7 +1,9 @@
 """Tests for OpeningBook model."""
 
+import gc
 import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -58,6 +60,9 @@ class TestOpeningBookLoading:
 
         assert "not found" in str(exc_info.value)
 
+    @pytest.mark.skipif(
+        os.name == "nt", reason="chmod doesn't work the same on Windows"
+    )
     def test_load_unreadable_file(self):
         """Test loading an unreadable book file."""
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as temp_file:
@@ -81,6 +86,7 @@ class TestOpeningBookLoading:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as temp_file:
             temp_path = temp_file.name
             temp_file.write(b"invalid polyglot data")
+            temp_file.flush()  # Ensure data is written
 
         try:
             with pytest.raises(OpeningBookError) as exc_info:
@@ -89,7 +95,28 @@ class TestOpeningBookLoading:
             assert temp_path in str(exc_info.value)
 
         finally:
-            os.unlink(temp_path)
+            # Ensure the book is closed before deleting on Windows
+            if self.book.is_loaded:
+                self.book.close()
+
+            # On Windows, force garbage collection and retry with backoff
+            if os.name == "nt":
+                gc.collect()  # Force cleanup of any lingering file handles
+                time.sleep(0.1)
+
+                # Retry up to 3 times with increasing delays
+                for attempt in range(3):
+                    try:
+                        os.unlink(temp_path)
+                        break  # Success
+                    except PermissionError:
+                        if attempt < 2:  # Not the last attempt
+                            time.sleep(0.5 * (attempt + 1))  # Increasing backoff
+                        else:
+                            # Last attempt failed - cleanup will happen eventually
+                            pass  # Ignore the error on the last attempt
+            else:
+                os.unlink(temp_path)
 
     def test_load_success(self):
         """Test successfully loading a book."""

@@ -1,0 +1,84 @@
+name: Lint and Format Check
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      run-type-check:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run ty type checking'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read    # Read source code
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # Read source code
+      actions: read     # Read workflow info for caching
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Install system dependencies for wxPython
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libnotify-dev \
+          libsdl2-dev
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen
+
+    - name: Run linting
+      run: |
+        uv run ruff check .
+
+    - name: Check code formatting
+      run: |
+        uv run ruff format --check .
+
+    - name: Run type checking
+      if: inputs.run-type-check
+      run: |
+        uv run python -m ty

@@ -152,13 +152,8 @@ class TestChessControllerOpeningBookIntegration:
 
         # Test the capture move
         capture_move = game.board_state.board.move_stack[-1]
-        capture_announcement = controller._format_move_announcement(capture_move)
+        capture_msg = controller._format_move_announcement(capture_move)
 
         # Verify capture IS announced correctly
-        has_takes = (
-            "takes" in capture_announcement.lower()
-            or "captures" in capture_announcement.lower()
-        )
-        assert has_takes, (
-            f"Real capture should announce 'takes': {capture_announcement}"
-        )
+        has_takes = "takes" in capture_msg.lower() or "captures" in capture_msg.lower()
+        assert has_takes, f"Real capture should announce 'takes': {capture_msg}"

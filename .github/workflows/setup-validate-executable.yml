@@ -1,0 +1,109 @@
+name: Validate Executable
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      os:
+        required: true
+        type: string
+        description: 'Operating system (ubuntu-latest, windows-latest, or macos-latest)'
+      artifact-name:
+        required: true
+        type: string
+        description: 'Name of the artifact to download (e.g., openboard-linux)'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    name: Validate on ${{ inputs.os }}
+    runs-on: ${{ inputs.os }}
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen --group dev
+
+    - name: Cache APT packages (Ubuntu)
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: apt-validate-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-validate-executable.yml') }}
+        restore-keys: |
+          apt-validate-${{ runner.os }}-
+
+    - name: Download artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: artifacts/
+
+    - name: Extract and prepare executable (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        cd artifacts
+        tar -xzf OpenBoard-linux-x64.tar.gz
+        chmod +x OpenBoard/OpenBoard
+        echo "EXECUTABLE_PATH=artifacts/OpenBoard/OpenBoard" >> $GITHUB_ENV
+
+    - name: Extract and prepare executable (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        cd artifacts
+        tar -xzf OpenBoard-macos-x64.tar.gz
+        chmod +x OpenBoard.app/Contents/MacOS/OpenBoard
+        echo "EXECUTABLE_PATH=artifacts/OpenBoard.app/Contents/MacOS/OpenBoard" >> $GITHUB_ENV
+
+    - name: Extract and prepare executable (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        cd artifacts
+        Expand-Archive -Path OpenBoard-windows-x64.zip -DestinationPath .
+        echo "EXECUTABLE_PATH=artifacts/OpenBoard.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Run build validation
+      run: |
+        uv run python .build/validation/verify_build.py --executable ${{ env.EXECUTABLE_PATH }} --verbose

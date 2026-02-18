@@ -1,0 +1,169 @@
+name: Test Suite
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      os-matrix:
+        required: false
+        type: string
+        default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+        description: 'JSON array of operating systems to test on'
+      install-stockfish:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to install Stockfish engine for testing'
+      fetch-depth:
+        required: false
+        type: number
+        default: 0
+        description: 'Git fetch depth (0 for full history)'
+      run-import-test:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run package import test'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read    # Read source code
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read    # Read source code
+      actions: read     # Read workflow info for caching
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(inputs.os-matrix) }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Cache APT packages (Ubuntu)
+      if: runner.os == 'Linux'
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: apt-${{ runner.os }}-${{ github.run_number }}
+        restore-keys: |
+          apt-${{ runner.os }}-
+
+    - name: Cache Homebrew packages (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/Library/Caches/Homebrew
+          /usr/local/Cellar/stockfish
+          /opt/homebrew/Cellar/stockfish
+        key: brew-${{ runner.os }}-stockfish-${{ github.run_number }}
+        restore-keys: |
+          brew-${{ runner.os }}-stockfish-
+          brew-${{ runner.os }}-
+
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux' && inputs.install-stockfish
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          stockfish \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libnotify-dev \
+          libsdl2-dev \
+          speech-dispatcher \
+          espeak-ng
+
+    - name: Install system dependencies (macOS)
+      if: runner.os == 'macOS' && inputs.install-stockfish
+      run: |
+        brew update
+        brew install stockfish
+
+    - name: Install system dependencies (Windows)
+      if: runner.os == 'Windows' && inputs.install-stockfish
+      shell: pwsh
+      run: |
+        # Download and install Stockfish for Windows
+        $url = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
+        $output = "stockfish.zip"
+        Invoke-WebRequest -Uri $url -OutFile $output
+        Expand-Archive -Path $output -DestinationPath "stockfish"
+        $stockfishPath = Join-Path (Get-Location) "stockfish"
+        echo "$stockfishPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Install system dependencies (Ubuntu - build-only)
+      if: runner.os == 'Linux' && !inputs.install-stockfish
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libnotify-dev \
+          libsdl2-dev
+        # Only install GUI libraries needed for wxPython builds
+
+    - name: Install system dependencies (macOS - build-only)
+      if: runner.os == 'macOS' && !inputs.install-stockfish
+      run: |
+        brew update
+        # Only install GUI and accessibility libraries needed for building
+
+    - name: Install system dependencies (Windows - build-only)
+      if: runner.os == 'Windows' && !inputs.install-stockfish
+      shell: pwsh
+      run: |
+        # Only install dependencies needed for building
+        Write-Host "No additional system dependencies required for Windows builds"
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen
+
+    - name: Run tests
+      run: |
+        uv run python -m pytest -v --tb=short
+
+    - name: Test import (verify package structure)
+      if: inputs.run-import-test
+      run: |
+        uv run python -c "import openboard; print('Package imports successfully')"

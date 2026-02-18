@@ -84,7 +84,7 @@ class EngineStatusDialog(wx.Dialog):
         status_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Stockfish Status")
 
         self.status_text = wx.TextCtrl(
-            self, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(500, 200)
+            self, style=wx.TE_MULTILINE | wx.TE_READONLY, size=wx.Size(500, 200)
         )
         status_box.Add(self.status_text, 1, wx.EXPAND | wx.ALL, 5)
 

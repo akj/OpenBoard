@@ -724,11 +724,17 @@ class ChessFrame(wx.Frame):
             KeyAction.REQUEST_BOOK_HINT: lambda: self.controller.request_book_hint(),
             KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
             KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
-            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: self.controller.toggle_announce_mode(),
+            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: (
+                self.controller.toggle_announce_mode()
+            ),
             KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
             KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
-            KeyAction.ANNOUNCE_LEGAL_MOVES: lambda: self.controller.announce_legal_moves(),
-            KeyAction.ANNOUNCE_ATTACKING_PIECES: lambda: self.controller.announce_attacking_pieces(),
+            KeyAction.ANNOUNCE_LEGAL_MOVES: lambda: (
+                self.controller.announce_legal_moves()
+            ),
+            KeyAction.ANNOUNCE_ATTACKING_PIECES: lambda: (
+                self.controller.announce_attacking_pieces()
+            ),
         }
 
         return KeyboardCommandHandler(self.keyboard_config, action_handlers)

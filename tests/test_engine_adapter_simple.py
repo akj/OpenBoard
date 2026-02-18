@@ -101,20 +101,8 @@ def test_adapter_strong_set_cleanup() -> None:
     assert len(adapter._active_futures) == 0
 
 
-@patch("chess.engine.popen_uci")
-def test_adapter_get_best_move_requires_running_engine(
-    mock_popen_uci: MagicMock,
-) -> None:
-    """Test that get_best_move requires engine to be running."""
-    adapter = EngineAdapter(engine_path="/fake/path")
-
-    # Should raise error when engine not running
-    with pytest.raises(RuntimeError, match="Engine is not running"):
-        adapter.get_best_move(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        )
-
-
+# Canonical tests for engine-not-running guard and auto-detection class method
+# live in test_engine_adapter_integration.py and test_engine_adapter.py. (ref: DL-005)
 @patch("chess.engine.popen_uci")
 def test_adapter_get_best_move_async_requires_running_engine(
     mock_popen_uci: MagicMock,
@@ -183,20 +171,6 @@ def test_error_message_formatting() -> None:
     assert "Engine is not running" in "Engine is not running; call start() first."
     assert "best move" in "Engine failed to compute best move: test error"
     assert "startup failed" in "Engine startup failed: test error"
-
-
-def test_create_with_auto_detection_class_method() -> None:
-    """Test the create_with_auto_detection class method."""
-    with patch("openboard.engine.engine_adapter.EngineDetector") as mock_detector_class:
-        mock_detector = MagicMock()
-        mock_detector.find_engine.return_value = "/usr/bin/stockfish"
-        mock_detector_class.return_value = mock_detector
-
-        adapter = EngineAdapter.create_with_auto_detection("stockfish", {"Threads": 4})
-
-        assert adapter.engine_path == "/usr/bin/stockfish"
-        assert adapter.options == {"Threads": 4}
-        mock_detector.find_engine.assert_called_once_with("stockfish")
 
 
 def test_board_copy_safety() -> None:

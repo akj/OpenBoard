@@ -1,0 +1,72 @@
+name: Build Validation
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.12'
+        description: 'Python version to use'
+      uv-version:
+        required: false
+        type: string
+        default: '0.8.19'
+        description: 'UV version to use'
+      run-pyinstaller-validation:
+        required: false
+        type: boolean
+        default: true
+        description: 'Whether to run PyInstaller validation'
+
+# Minimal permissions for reusable workflow
+permissions:
+  contents: read    # Read source code
+
+jobs:
+  validate:
+    name: Validate Build Configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # Read source code
+      actions: read     # Read workflow info for caching
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache UV virtual environment
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+
+    - name: Install dependencies
+      run: |
+        uv sync --frozen --group dev
+
+    - name: Validate PyInstaller configuration
+      if: inputs.run-pyinstaller-validation
+      run: |
+        # Check if PyInstaller can analyze the application
+        uv run python -c "
+        import PyInstaller.utils.hooks
+        import openboard
+        print('✓ PyInstaller hooks validation passed')
+        "
