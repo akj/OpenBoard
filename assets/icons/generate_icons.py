@@ -6,6 +6,7 @@ Generates platform-specific icon files from the source SVG.
 Requires: Pillow (PIL)
 """
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -138,8 +139,6 @@ except (FileNotFoundError, subprocess.CalledProcessError):
     print(f"  Created: {icns_file} (basic format)")
 
 # Clean up iconset directory
-import shutil
-
 shutil.rmtree(iconset_dir)
 
 print("\nIcon generation complete!")
