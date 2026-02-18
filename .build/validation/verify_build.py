@@ -291,9 +291,10 @@ class BuildValidator:
                 move = legal_moves[0]
                 game.board_state.make_move(move)
 
-                # Verify move was made
-                if board.move_stack:
-                    last_move = board.peek()
+                # Verify move was made (re-fetch board since .board returns a copy)
+                updated_board = game.board_state.board
+                if updated_board.move_stack:
+                    last_move = updated_board.peek()
                     move_made_correctly = last_move == move
                 else:
                     move_made_correctly = False

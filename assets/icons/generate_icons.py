@@ -27,13 +27,17 @@ if not SVG_FILE.exists():
 
 # Try to load SVG using Pillow
 # Note: Pillow can't directly read SVG, so we need cairosvg or use pre-rendered PNG
-# For now, let's check if we can use cairosvg
+# cairosvg provides accurate SVG rendering; Pillow fallback handles missing dependency
 try:
     import cairosvg
+
     HAS_CAIROSVG = True
 except ImportError:
     HAS_CAIROSVG = False
-    print("Warning: cairosvg not found. Will try to convert SVG using Pillow's limited support")
+    print(
+        "Warning: cairosvg not found. Will try to convert SVG using Pillow's limited support"
+    )
+
 
 def svg_to_png(svg_path, png_path, size):
     """Convert SVG to PNG at specified size."""
@@ -42,7 +46,7 @@ def svg_to_png(svg_path, png_path, size):
             url=str(svg_path),
             write_to=str(png_path),
             output_width=size,
-            output_height=size
+            output_height=size,
         )
     else:
         # Fallback: Try to open SVG with Pillow (limited support)
@@ -51,9 +55,12 @@ def svg_to_png(svg_path, png_path, size):
             img = img.resize((size, size), Image.Resampling.LANCZOS)
             img.save(png_path, "PNG")
         except Exception as e:
-            print(f"Error: Cannot convert SVG. Install cairosvg: uv pip install cairosvg")
+            print(
+                "Error: Cannot convert SVG. Install cairosvg: uv pip install cairosvg"
+            )
             print(f"Error details: {e}")
             sys.exit(1)
+
 
 # Generate PNG for Linux (256x256)
 print("Generating PNG for Linux...")
@@ -79,7 +86,7 @@ images[0].save(
     ico_file,
     format="ICO",
     sizes=[(img.width, img.height) for img in images],
-    append_images=images[1:]
+    append_images=images[1:],
 )
 print(f"  Created: {ico_file}")
 
@@ -111,15 +118,16 @@ for size, filename in icns_sizes:
 # Try to use iconutil (macOS only) or pillow_icns
 try:
     import subprocess
+
     result = subprocess.run(
         ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(icns_file)],
         capture_output=True,
-        text=True
+        text=True,
     )
     if result.returncode == 0:
         print(f"  Created: {icns_file}")
     else:
-        print(f"Warning: iconutil failed. Trying Python fallback...")
+        print("Warning: iconutil failed. Trying Python fallback...")
         raise FileNotFoundError("iconutil not available")
 except (FileNotFoundError, subprocess.CalledProcessError):
     # Fallback: Use pillow to create a simple ICNS (not ideal but works)
@@ -131,6 +139,7 @@ except (FileNotFoundError, subprocess.CalledProcessError):
 
 # Clean up iconset directory
 import shutil
+
 shutil.rmtree(iconset_dir)
 
 print("\nIcon generation complete!")

@@ -108,14 +108,12 @@ class TestBuildValidator:
         assert "dependencies" in self.validator.results
         result = self.validator.results["dependencies"]
 
-        # Should pass if we're in a properly set up environment
-        if result["passed"]:
-            assert "required dependencies are available" in result["message"]
-            # Details should contain the individual package results
-            assert "details" in result
-            assert "chess" in result["details"]
-        else:
-            assert "Missing or broken dependencies" in result["message"]
+        # Tests run in a properly configured environment where all required
+        # packages are installed; unconditional assertions enforce this. (ref: DL-001)
+        assert result["passed"] is True
+        assert "required dependencies are available" in result["message"]
+        assert "details" in result
+        assert "chess" in result["details"]
 
     def test_validate_package_imports(self):
         """Test the validate_package_imports method."""
@@ -124,14 +122,10 @@ class TestBuildValidator:
         assert "package_imports" in self.validator.results
         result = self.validator.results["package_imports"]
 
-        # Check that the result has the expected structure
-        assert "passed" in result
-        assert "message" in result
+        # Same rationale: unconditional assertions in a configured test env.
+        assert result["passed"] is True
+        assert "Successfully imported" in result["message"]
         assert "details" in result
-
-        # The details should contain information about each module
-        if result["passed"]:
-            assert "Successfully imported" in result["message"]
 
     def test_validate_accessibility_modules(self):
         """Test the validate_accessibility_modules method."""
@@ -171,15 +165,13 @@ class TestBuildValidator:
         assert "game_logic" in self.validator.results
         result = self.validator.results["game_logic"]
 
-        assert "passed" in result
+        assert result["passed"] is True
         assert "message" in result
-
-        if result["passed"]:
-            assert "details" in result
-            details = result["details"]
-            assert "initial_legal_moves" in details
-            assert "move_made_correctly" in details
-            assert "game_config_valid" in details
+        assert "details" in result
+        details = result["details"]
+        assert details["initial_legal_moves"] == 20
+        assert details["move_made_correctly"] is True
+        assert details["game_config_valid"] is True
 
     def test_validate_signal_system(self):
         """Test the validate_signal_system method."""
@@ -188,14 +180,12 @@ class TestBuildValidator:
         assert "signal_system" in self.validator.results
         result = self.validator.results["signal_system"]
 
-        assert "passed" in result
+        assert result["passed"] is True
         assert "message" in result
-
-        if result["passed"]:
-            assert "details" in result
-            details = result["details"]
-            assert "basic_signal_received" in details
-            assert "board_signals_working" in details
+        assert "details" in result
+        details = result["details"]
+        assert details["basic_signal_received"] is True
+        assert details["board_signals_working"] is True
 
     def test_performance_baseline(self):
         """Test the performance_baseline method."""
@@ -208,15 +198,14 @@ class TestBuildValidator:
         assert "message" in result
         assert "details" in result
 
-        # Check benchmark details
         details = result["details"]
-        if "benchmarks" in details:
-            benchmarks = details["benchmarks"]
-            expected_metrics = ["import_time", "game_init_time", "move_generation_time"]
-            for metric in expected_metrics:
-                if metric in benchmarks:
-                    assert isinstance(benchmarks[metric], (int, float))
-                    assert benchmarks[metric] >= 0
+        assert result["passed"] is True
+        assert "benchmarks" in details
+        benchmarks = details["benchmarks"]
+        for metric in ["import_time", "game_init_time", "move_generation_time"]:
+            assert metric in benchmarks
+            assert isinstance(benchmarks[metric], (int, float))
+            assert benchmarks[metric] >= 0
 
     def test_validate_executable_functionality_no_executable(self):
         """Test validate_executable_functionality with no executable provided."""

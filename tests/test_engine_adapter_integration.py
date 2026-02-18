@@ -762,9 +762,9 @@ class TestEngineAdapterContextManager:
             # Expected startup failure
             pass
 
-        # Context manager should handle cleanup even on startup failure
-        # The adapter variable should be set but engine should not be running
-        assert not EngineAdapter(engine_path=mock_engine_path).is_running()
+        # When __aenter__ raises, Python skips the as-clause assignment; adapter stays None.
+        # (ref: DL-004)
+        assert adapter is None
 
     @patch("chess.engine.popen_uci")
     @pytest.mark.asyncio
