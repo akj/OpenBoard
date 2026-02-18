@@ -63,10 +63,6 @@ jobs:
           **/pyproject.toml
           **/uv.lock
 
-    - name: Install dependencies
-      run: |
-        uv sync --frozen --group dev
-
     - name: Cache APT packages (Ubuntu)
       if: runner.os == 'Linux'
       uses: actions/cache@v4
@@ -89,18 +85,6 @@ jobs:
           brew-build-${{ runner.os }}-stockfish-
           brew-build-${{ runner.os }}-
 
-    - name: Cache PyInstaller build
-      uses: actions/cache@v4
-      with:
-        path: |
-          build/
-          !build/scripts/
-          !build/hooks/
-          !build/validation/
-        key: pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock', 'openboard.spec', '.build/pyinstaller_spec.py') }}
-        restore-keys: |
-          pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-
-
     - name: Install system dependencies and Stockfish (Ubuntu)
       if: runner.os == 'Linux'
       run: |
@@ -120,6 +104,22 @@ jobs:
         brew update
         brew install stockfish
 
+    - name: Install dependencies
+      run: |
+        uv sync --frozen --group dev
+
+    - name: Cache PyInstaller build
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/
+          !build/scripts/
+          !build/hooks/
+          !build/validation/
+        key: pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock', 'openboard.spec', '.build/pyinstaller_spec.py') }}
+        restore-keys: |
+          pyinstaller-${{ runner.os }}-py${{ inputs.python-version }}-
+
     - name: Cache Stockfish (Windows)
       if: runner.os == 'Windows'
       id: cache-stockfish-windows
@@ -138,7 +138,7 @@ jobs:
         $url = "https://github.com/official-stockfish/Stockfish/releases/latest/download/stockfish-windows-x86-64-avx2.zip"
         $output = "stockfish.zip"
         Invoke-WebRequest -Uri $url -OutFile $output
-        Expand-Archive -Path $output -DestinationPath "stockfish"
+        Expand-Archive -Path $output -DestinationPath "stockfish" -Force
 
     - name: Add Stockfish to PATH (Windows)
       if: runner.os == 'Windows'

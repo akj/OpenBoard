@@ -30,3 +30,12 @@ dev = [
 
 [tool.uv.sources]
 accessible-output3 = { git = "https://github.com/SigmaNight/accessible_output3" }
+wxpython = [
+    { index = "wxpython-linux", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "wxpython-linux"
+url = "https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04/"
+format = "flat"
+explicit = true
