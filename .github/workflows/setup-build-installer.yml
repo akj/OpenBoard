@@ -45,17 +45,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 1  # Only need current commit for installer metadata
 
     - name: Set up Python ${{ inputs.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Cache UV virtual environment
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
@@ -90,7 +90,7 @@ jobs:
         sudo apt-get install -y rpm
 
     - name: Download build artifact
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v8
       with:
         name: ${{ inputs.artifact-name }}
         path: ./artifacts
@@ -145,7 +145,7 @@ jobs:
         ls -lh dist/installers/
 
     - name: Upload installer artifact
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: openboard-${{ steps.paths.outputs.platform }}-installer
         path: dist/installers/*

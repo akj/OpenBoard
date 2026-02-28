@@ -37,17 +37,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 1  # Only need current commit for build metadata
 
     - name: Set up Python ${{ inputs.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Cache UV virtual environment
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
@@ -65,7 +65,7 @@ jobs:
 
     - name: Cache APT packages (Ubuntu)
       if: runner.os == 'Linux'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /var/cache/apt/archives
         key: apt-build-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-build.yml') }}
@@ -74,7 +74,7 @@ jobs:
 
     - name: Cache Homebrew packages (macOS)
       if: runner.os == 'macOS'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/Library/Caches/Homebrew
@@ -109,7 +109,7 @@ jobs:
         uv sync --frozen --group dev
 
     - name: Cache PyInstaller build
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           build/
@@ -123,7 +123,7 @@ jobs:
     - name: Cache Stockfish (Windows)
       if: runner.os == 'Windows'
       id: cache-stockfish-windows
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: stockfish/
         key: stockfish-windows-x86-64-avx2-${{ hashFiles('.github/workflows/setup-build.yml') }}
@@ -204,7 +204,7 @@ jobs:
         Compress-Archive -Path OpenBoard/* -DestinationPath ${{ steps.paths.outputs.archive_name }}
 
     - name: Upload executable artifact
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: openboard-${{ steps.paths.outputs.platform }}
         path: dist/${{ steps.paths.outputs.archive_name }}
@@ -212,7 +212,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload checksum artifact
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: openboard-${{ steps.paths.outputs.platform }}-checksum
         path: dist/OpenBoard.sha256
