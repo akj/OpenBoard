@@ -37,15 +37,15 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Set up Python ${{ inputs.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Cache UV virtual environment
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
@@ -67,7 +67,7 @@ jobs:
 
     - name: Cache APT packages (Ubuntu)
       if: runner.os == 'Linux'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: /var/cache/apt/archives
         key: apt-validate-${{ runner.os }}-${{ hashFiles('.github/workflows/setup-validate-executable.yml') }}
@@ -75,7 +75,7 @@ jobs:
           apt-validate-${{ runner.os }}-
 
     - name: Download artifact
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v8
       with:
         name: ${{ inputs.artifact-name }}
         path: artifacts/
