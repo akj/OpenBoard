@@ -296,7 +296,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cairosvg", specifier = ">=2.7.0" },
+    { name = "cairosvg", specifier = ">=2.8.2" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pyinstaller", specifier = ">=6.0.0" },
     { name = "pytest", specifier = ">=9.0.1" },
