@@ -18,7 +18,7 @@ openboard = "openboard.views.views:main"
 
 [dependency-groups]
 dev = [
-    "cairosvg>=2.7.0",
+    "cairosvg>=2.8.2",
     "pillow>=10.0.0",
     "pyinstaller>=6.0.0",
     "pytest>=9.0.1",
