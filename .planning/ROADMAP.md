@@ -48,7 +48,12 @@ Phase 1: Tech Debt   ─┬──►  Phase 2a: GameSerializer ─┬─► Phas
   3. Pressing menu items other than "Load PGN" never inadvertently triggers the PGN load handler (TD-05: bound to a specific menu ID, not `wx.ID_ANY`).
   4. On a fresh install on Windows, macOS, and Linux, settings, keyboard config, autosave, and the engines directory all live under the OS-standard user-data location — and any pre-existing files in `cwd` are migrated automatically on first launch (TD-12: `platformdirs` migration).
   5. Each fix from TD-01..TD-13 has a regression test that fails on the buggy code and passes on the fixed code (TD-14).
-**Plans**: TBD
+**Plans:** 5 plans
+- [ ] 01-01-PLAN.md — Signal pattern refactor (Wave 1): Game.move_undone forwarder, MoveKind IntFlag payload, model-routed replay_to_position; eliminates _pending_old_board and the O(n) replay fallback (TD-01, TD-02, TD-03, TD-14)
+- [ ] 01-02-PLAN.md — Engine-adapter cleanup (Wave 2): delete _simple API; extract _resolve_move_context; remove sync request_computer_move; remove player_color (TD-06, TD-07, TD-08, TD-10, TD-14)
+- [ ] 01-03-PLAN.md — Bug fixes & menu hygiene (Wave 2): board.attackers() rewrite; specific menu IDs; drop \\tB accelerator; BoardState.board_ref property (TD-04, TD-05, TD-09, TD-13 perf slice, TD-14)
+- [ ] 01-04-PLAN.md — Persistence paths & security hardening (Wave 2): platformdirs migration; SSL context; SHA-256 verification; ZIP path-traversal guard (TD-12, TD-13 security slice, TD-14)
+- [ ] 01-05-PLAN.md — Exception hierarchy & test-discipline finalisation (Wave 3): prune unused types; wire up EngineTimeoutError/EngineProcessError raises; produce tests/CONCERNS_TRACEABILITY.md (TD-11, TD-14)
 
 ### Phase 2a: GameSerializer (PGN + FEN save/load)
 
@@ -184,7 +189,7 @@ Phases with standard patterns (skip research-phase): Phase 1, Phase 2a, Phase 2b
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Tech Debt Cleanup | 0/0 | Not started | - |
+| 1. Tech Debt Cleanup | 0/5 | Planning complete | - |
 | 2a. GameSerializer | 0/0 | Not started | - |
 | 2b. Settings Extension | 0/0 | Not started | - |
 | 3a. Clock Infrastructure | 0/0 | Not started | - |
