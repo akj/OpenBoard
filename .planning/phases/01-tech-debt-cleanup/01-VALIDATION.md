@@ -1,10 +1,11 @@
 ---
 phase: 1
 slug: tech-debt-cleanup
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: signed-off
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-27
+signed_off: 2026-04-27
 ---
 
 # Phase 1 — Validation Strategy
@@ -51,18 +52,18 @@ created: 2026-04-27
 | 1-03-02 | 03 | 2 | TD-05 | — | No EVT_MENU bind uses wx.ID_ANY | unit (introspection) | `uv run python -m pytest tests/test_views_menus.py -x` | ❌ W0 (NEW file) | ⬜ pending |
 | 1-03-03 | 03 | 2 | TD-09 | — | EVT_CHAR_HOOK B dispatches to request_book_hint AND menu lacks `\tB` accelerator | unit | `uv run python -m pytest tests/test_views_menus.py::test_book_hint_no_accelerator -x` | ❌ W0 | ⬜ pending |
 | 1-03-04 | 03 | 2 | TD-13 | — | BoardState.board_ref returns live _board reference | unit | `uv run python -m pytest tests/test_board_state_terminal.py::test_board_ref_returns_live_reference -x` | ❌ W0 | ⬜ pending |
-| 1-04-01 | 04 | 2 | TD-12 | — | paths.py helpers honor OPENBOARD_PROFILE_DIR | unit | `uv run python -m pytest tests/test_paths.py -x` | ❌ W0 (NEW file) | ⬜ pending |
-| 1-04-02 | 04 | 2 | TD-12 / D-10 | — | One-shot migration is idempotent | unit | `uv run python -m pytest tests/test_migration.py -x` | ❌ W0 (NEW file) | ⬜ pending |
-| 1-04-03 | 04 | 2 | TD-12 | — | EngineSettings.engines_dir resolves via paths.engines_dir() | unit | `uv run python -m pytest tests/test_settings.py -k "engines_dir" -x` | ❌ W0 | ⬜ pending |
-| 1-04-04 | 04 | 2 | TD-13 / D-21 | T-04-V9 | urlopen calls pass context=ssl.create_default_context() | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_uses_ssl_context -x` | ❌ W0 (NEW file) | ⬜ pending |
-| 1-04-05 | 04 | 2 | TD-13 / D-21 | T-04-V12 | extract_zip rejects path traversal | unit | `uv run python -m pytest tests/test_downloader_security.py::test_extract_zip_rejects_path_traversal -x` | ❌ W0 | ⬜ pending |
-| 1-04-06 | 04 | 2 | TD-13 / D-21 | T-04-V6 | download_file raises DownloadError on SHA-256 mismatch when sha provided | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_sha256_mismatch_raises -x` | ❌ W0 | ⬜ pending |
-| 1-04-07 | 04 | 2 | TD-13 / D-21 | T-04-V6 | download_file logs WARNING when expected_sha256 is None | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_warns_when_no_sha256 -x` | ❌ W0 | ⬜ pending |
-| 1-05-01 | 05 | 3 | TD-11 / D-19 | — | EngineTimeoutError raised on engine timeout | unit | `uv run python -m pytest tests/test_engine_adapter.py -k "engine_timeout_error" -x` | ❌ W0 | ⬜ pending |
-| 1-05-02 | 05 | 3 | TD-11 / D-19 | — | EngineProcessError raised on engine startup failure | unit | `uv run python -m pytest tests/test_engine_adapter.py -k "engine_process_error" -x` | ❌ W0 | ⬜ pending |
-| 1-05-03 | 05 | 3 | TD-11 / D-19 | — | DownloadError / NetworkError raised at download/network boundaries | unit | `uv run python -m pytest tests/test_downloader.py tests/test_stockfish_manager.py -x` | ⚠ Partial | ⬜ pending |
-| 1-05-04 | 05 | 3 | TD-11 / D-19 | — | Pruned exception types unimportable | unit | `uv run python -m pytest tests/test_exceptions.py::test_pruned_exception_types_unimportable -x` | ❌ W0 | ⬜ pending |
-| 1-05-05 | 05 | 3 | TD-14 | — | tests/CONCERNS_TRACEABILITY.md exists and lists every TD-N → test file → test name | meta-doc | `test -f tests/CONCERNS_TRACEABILITY.md && grep -c "^- TD-" tests/CONCERNS_TRACEABILITY.md` (≥14) | ❌ W0 | ⬜ pending |
+| 1-04-01 | 04 | 3 | TD-12 | — | paths.py helpers honor OPENBOARD_PROFILE_DIR | unit | `uv run python -m pytest tests/test_paths.py -x` | ❌ W0 (NEW file) | ⬜ pending |
+| 1-04-02 | 04 | 3 | TD-12 / D-10 | — | One-shot migration is idempotent | unit | `uv run python -m pytest tests/test_migration.py -x` | ❌ W0 (NEW file) | ⬜ pending |
+| 1-04-03 | 04 | 3 | TD-12 | — | EngineSettings.engines_dir resolves via paths.engines_dir() | unit | `uv run python -m pytest tests/test_settings.py -k "engines_dir" -x` | ❌ W0 | ⬜ pending |
+| 1-04-04 | 04 | 3 | TD-13 / D-21 | T-04-V9 | urlopen calls pass context=ssl.create_default_context() | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_uses_ssl_context -x` | ❌ W0 (NEW file) | ⬜ pending |
+| 1-04-05 | 04 | 3 | TD-13 / D-21 | T-04-V12 | extract_zip rejects path traversal | unit | `uv run python -m pytest tests/test_downloader_security.py::test_extract_zip_rejects_path_traversal -x` | ❌ W0 | ⬜ pending |
+| 1-04-06 | 04 | 3 | TD-13 / D-21 | T-04-V6 | download_file raises DownloadError on SHA-256 mismatch when sha provided | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_sha256_mismatch_raises -x` | ❌ W0 | ⬜ pending |
+| 1-04-07 | 04 | 3 | TD-13 / D-21 | T-04-V6 | download_file logs WARNING when expected_sha256 is None | unit | `uv run python -m pytest tests/test_downloader_security.py::test_download_warns_when_no_sha256 -x` | ❌ W0 | ⬜ pending |
+| 1-05-01 | 05 | 4 | TD-11 / D-19 | — | EngineTimeoutError raised on engine timeout | unit | `uv run python -m pytest tests/test_engine_adapter.py -k "engine_timeout_error" -x` | ❌ W0 | ⬜ pending |
+| 1-05-02 | 05 | 4 | TD-11 / D-19 | — | EngineProcessError raised on engine startup failure | unit | `uv run python -m pytest tests/test_engine_adapter.py -k "engine_process_error" -x` | ❌ W0 | ⬜ pending |
+| 1-05-03 | 05 | 4 | TD-11 / D-19 | — | DownloadError / NetworkError raised at download/network boundaries | unit | `uv run python -m pytest tests/test_downloader.py tests/test_stockfish_manager.py -x` | ⚠ Partial | ⬜ pending |
+| 1-05-04 | 05 | 4 | TD-11 / D-19 | — | Pruned exception types unimportable | unit | `uv run python -m pytest tests/test_exceptions.py::test_pruned_exception_types_unimportable -x` | ❌ W0 | ⬜ pending |
+| 1-05-05 | 05 | 4 | TD-14 | — | tests/CONCERNS_TRACEABILITY.md exists and lists every TD-N → test file → test name | meta-doc | `test -f tests/CONCERNS_TRACEABILITY.md && grep -c "^- TD-" tests/CONCERNS_TRACEABILITY.md` (≥14) | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -106,11 +107,11 @@ The following test files / fixtures need to be created **before** the implementi
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** signed off 2026-04-27 (gsd-plan-checker: PASSED dimensions 8a/8b/8c/8d/8e). Plans embed Wave 0 RED tests in each Task 1; existing tasks all carry `<automated>` verify commands; sampling continuity holds across Waves 1-4; no watch-mode flags; feedback latency under the 60s budget per `pytest -x` invocations.

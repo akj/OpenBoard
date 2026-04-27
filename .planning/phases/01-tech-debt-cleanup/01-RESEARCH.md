@@ -1032,7 +1032,7 @@ def test_extract_zip_rejects_path_traversal(tmp_path):
 
 **If this table is empty:** All claims would be VERIFIED or CITED. The above 6 assumptions remain; A4 is the only one with material uncertainty (test execution in CI). Planner should investigate A4 during Plan 3 task design.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does CI currently handle wxPython tests?**
    - What we know: CI runs `pytest -v --tb=short` on a 3-OS matrix; Stockfish is installed; wxPython is installed via the locked Linux index. No explicit `Xvfb` or display setup is mentioned in `.planning/codebase/TESTING.md`.
