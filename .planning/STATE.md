@@ -1,3 +1,18 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_phase: 1 — Tech Debt Cleanup
+current_plan: None (no plan yet — Phase 1 awaits `/gsd-plan-phase 1`)
+status: planning
+last_updated: "2026-04-27T16:36:42.981Z"
+progress:
+  total_phases: 8
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
 # Project State: OpenBoard
 
 **Last updated:** 2026-04-27
@@ -10,6 +25,7 @@
 **Current Focus:** Foundation & Polish — fix every documented bug, add save/load and clock infrastructure, layer in sound and visual accessibility, and improve keyboard / announcement controls so the app is demo-able to a blind user with no apologies before deeper features are added.
 
 **Documents:**
+
 - `PROJECT.md` — project context, validated/active/out-of-scope requirements
 - `REQUIREMENTS.md` — 58 v1 REQ-IDs across 6 categories (TD/PER/CLK/SND/VIS/KEY)
 - `ROADMAP.md` — 8 phases organized as a four-tier dependency graph
@@ -24,6 +40,7 @@
 **Status:** Roadmap approved; ready for first phase planning.
 
 **Progress (milestone):**
+
 ```
 Phase 1  [          ] Not started
 Phase 2a [          ] Not started (Tier 1, parallel-safe with 2b)
@@ -79,11 +96,13 @@ Milestone progress: 0/8 phases complete (0/58 requirements delivered)
 **Last session ended:** Roadmap creation, 2026-04-27.
 
 **Next session should:**
+
 1. Run `/gsd-plan-phase 1` to decompose Phase 1 (Tech Debt Cleanup) into executable plans.
 2. Phase 1 has 14 REQ-IDs (TD-01..TD-14) and is the structural prerequisite for everything; expect plan-check to validate that fixes establish reusable patterns (signal forwarders, model-routed navigation, platformdirs) rather than one-off patches.
 3. Each TD-01..TD-13 fix must land with a regression test (TD-14) — make sure plan must-haves include test-first or test-with-fix discipline.
 
 **Resumption checklist:**
+
 - [ ] Read this STATE.md
 - [ ] Read ROADMAP.md "Phase 1: Tech Debt Cleanup" section
 - [ ] Read `.planning/codebase/CONCERNS.md` for the source-of-truth bug list with line-numbered references
