@@ -159,70 +159,80 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TD-01 | (TBD) | Pending |
-| TD-02 | (TBD) | Pending |
-| TD-03 | (TBD) | Pending |
-| TD-04 | (TBD) | Pending |
-| TD-05 | (TBD) | Pending |
-| TD-06 | (TBD) | Pending |
-| TD-07 | (TBD) | Pending |
-| TD-08 | (TBD) | Pending |
-| TD-09 | (TBD) | Pending |
-| TD-10 | (TBD) | Pending |
-| TD-11 | (TBD) | Pending |
-| TD-12 | (TBD) | Pending |
-| TD-13 | (TBD) | Pending |
-| TD-14 | (TBD) | Pending |
-| PER-01 | (TBD) | Pending |
-| PER-02 | (TBD) | Pending |
-| PER-03 | (TBD) | Pending |
-| PER-04 | (TBD) | Pending |
-| PER-05 | (TBD) | Pending |
-| PER-06 | (TBD) | Pending |
-| PER-07 | (TBD) | Pending |
-| PER-08 | (TBD) | Pending |
-| PER-09 | (TBD) | Pending |
-| CLK-01 | (TBD) | Pending |
-| CLK-02 | (TBD) | Pending |
-| CLK-03 | (TBD) | Pending |
-| CLK-04 | (TBD) | Pending |
-| CLK-05 | (TBD) | Pending |
-| CLK-06 | (TBD) | Pending |
-| CLK-07 | (TBD) | Pending |
-| CLK-08 | (TBD) | Pending |
-| CLK-09 | (TBD) | Pending |
-| CLK-10 | (TBD) | Pending |
-| SND-01 | (TBD) | Pending |
-| SND-02 | (TBD) | Pending |
-| SND-03 | (TBD) | Pending |
-| SND-04 | (TBD) | Pending |
-| SND-05 | (TBD) | Pending |
-| SND-06 | (TBD) | Pending |
-| SND-07 | (TBD) | Pending |
-| SND-08 | (TBD) | Pending |
-| VIS-01 | (TBD) | Pending |
-| VIS-02 | (TBD) | Pending |
-| VIS-03 | (TBD) | Pending |
-| VIS-04 | (TBD) | Pending |
-| VIS-05 | (TBD) | Pending |
-| VIS-06 | (TBD) | Pending |
-| KEY-01 | (TBD) | Pending |
-| KEY-02 | (TBD) | Pending |
-| KEY-03 | (TBD) | Pending |
-| KEY-04 | (TBD) | Pending |
-| KEY-05 | (TBD) | Pending |
-| KEY-06 | (TBD) | Pending |
-| KEY-07 | (TBD) | Pending |
-| KEY-08 | (TBD) | Pending |
-| KEY-09 | (TBD) | Pending |
-| KEY-10 | (TBD) | Pending |
-| KEY-11 | (TBD) | Pending |
+| TD-01 | Phase 1 | Pending |
+| TD-02 | Phase 1 | Pending |
+| TD-03 | Phase 1 | Pending |
+| TD-04 | Phase 1 | Pending |
+| TD-05 | Phase 1 | Pending |
+| TD-06 | Phase 1 | Pending |
+| TD-07 | Phase 1 | Pending |
+| TD-08 | Phase 1 | Pending |
+| TD-09 | Phase 1 | Pending |
+| TD-10 | Phase 1 | Pending |
+| TD-11 | Phase 1 | Pending |
+| TD-12 | Phase 1 | Pending |
+| TD-13 | Phase 1 | Pending |
+| TD-14 | Phase 1 | Pending |
+| PER-01 | Phase 2a | Pending |
+| PER-02 | Phase 2a | Pending |
+| PER-03 | Phase 2a | Pending |
+| PER-04 | Phase 2a | Pending |
+| PER-05 | Phase 2a | Pending |
+| PER-06 | Phase 4b | Pending |
+| PER-07 | Phase 4b | Pending |
+| PER-08 | Phase 4b | Pending |
+| PER-09 | Phase 2a | Pending |
+| CLK-01 | Phase 3a | Pending |
+| CLK-02 | Phase 3a | Pending |
+| CLK-03 | Phase 3a | Pending |
+| CLK-04 | Phase 3a | Pending |
+| CLK-05 | Phase 3a | Pending |
+| CLK-06 | Phase 3a | Pending |
+| CLK-07 | Phase 3a | Pending |
+| CLK-08 | Phase 3a | Pending |
+| CLK-09 | Phase 4b | Pending |
+| CLK-10 | Phase 3a | Pending |
+| SND-01 | Phase 4a | Pending |
+| SND-02 | Phase 4a | Pending |
+| SND-03 | Phase 4a | Pending |
+| SND-04 | Phase 4a | Pending |
+| SND-05 | Phase 4a | Pending |
+| SND-06 | Phase 4a | Pending |
+| SND-07 | Phase 4a | Pending |
+| SND-08 | Phase 4a | Pending |
+| VIS-01 | Phase 3c | Pending |
+| VIS-02 | Phase 3c | Pending |
+| VIS-03 | Phase 3c | Pending |
+| VIS-04 | Phase 3c | Pending |
+| VIS-05 | Phase 3c | Pending |
+| VIS-06 | Phase 3c | Pending |
+| KEY-01 | Phase 3c | Pending |
+| KEY-02 | Phase 3c | Pending |
+| KEY-03 | Phase 3c | Pending |
+| KEY-04 | Phase 3c | Pending |
+| KEY-05 | Phase 3c | Pending |
+| KEY-06 | Phase 3c | Pending |
+| KEY-07 | Phase 3b | Pending |
+| KEY-08 | Phase 3b | Pending |
+| KEY-09 | Phase 3b | Pending |
+| KEY-10 | Phase 3b | Pending |
+| KEY-11 | Phase 3b | Pending |
 
 **Coverage:**
 - v1 requirements: 58 total
-- Mapped to phases: 0 (will be filled by roadmap creation)
-- Unmapped: 58 (expected — pre-roadmap)
+- Mapped to phases: 58
+- Unmapped: 0 — all v1 requirements covered
+
+**Phase distribution:**
+- Phase 1 (Tech Debt): 14 (TD-01..TD-14)
+- Phase 2a (GameSerializer): 6 (PER-01..PER-05, PER-09)
+- Phase 2b (Settings Extension): 0 (infrastructural — no direct REQ-IDs; success criteria in ROADMAP.md)
+- Phase 3a (Clock Infrastructure): 9 (CLK-01..CLK-08, CLK-10)
+- Phase 3b (Verbosity & AnnounceFilter): 5 (KEY-07..KEY-11)
+- Phase 3c (Theme + Scale + Rebinding): 12 (VIS-01..VIS-06, KEY-01..KEY-06)
+- Phase 4a (SoundService): 8 (SND-01..SND-08)
+- Phase 4b (Autosave + PGN clock): 4 (PER-06, PER-07, PER-08, CLK-09)
 
 ---
 *Requirements defined: 2026-04-27*
-*Last updated: 2026-04-27 after initial definition*
+*Last updated: 2026-04-27 after roadmap creation (traceability filled in)*
