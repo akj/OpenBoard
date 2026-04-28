@@ -13,6 +13,8 @@ promotion+capture, check/checkmate). If any branch is unreachable via signal tes
 document it as a known gap. (ref: DL-007)
 """
 
+import inspect
+
 import chess
 from unittest.mock import Mock, patch
 
@@ -20,6 +22,7 @@ from openboard.controllers.chess_controller import ChessController
 from openboard.models.game import Game
 from openboard.models.game_mode import GameConfig, GameMode, DifficultyLevel
 from openboard.engine.engine_adapter import EngineAdapter
+from openboard.models.move_kind import MoveKind
 
 
 def _make_controller(game, config=None):
@@ -718,3 +721,194 @@ class TestChessControllerComputerThinking:
         controller, _ = _make_controller(game)
         controller._computer_thinking = True
         assert controller.is_computer_thinking() is True
+
+
+class TestMoveMadePayload:
+    """Verifies TD-02 / D-01 / D-02: Game.move_made payload carries old_board and move_kind."""
+
+    def test_move_made_payload_includes_old_board_and_move_kind_for_capture_with_check(
+        self, pre_scholars_mate_fen
+    ):
+        """Verifies TD-02: capture-with-checkmate yields CAPTURE | CHECK | CHECKMATE bits."""
+        game = _make_hvh_game()
+        game.board_state.load_fen(pre_scholars_mate_fen)
+        payloads: list[dict] = []
+
+        def on_move(sender, move=None, old_board=None, move_kind=None, **kwargs):
+            payloads.append({"move": move, "old_board": old_board, "move_kind": move_kind})
+
+        game.move_made.connect(on_move, weak=False)
+        payloads.clear()
+        # Qh5xf7# — white queen captures pawn on f7, mating black
+        game.apply_move(chess.H5, chess.F7)
+
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["old_board"] is not None
+        assert isinstance(payload["move_kind"], MoveKind)
+        assert MoveKind.CAPTURE in payload["move_kind"]
+        assert MoveKind.CHECK in payload["move_kind"]
+        assert MoveKind.CHECKMATE in payload["move_kind"]
+        assert MoveKind.CASTLE not in payload["move_kind"]
+        assert MoveKind.EN_PASSANT not in payload["move_kind"]
+        assert MoveKind.PROMOTION not in payload["move_kind"]
+
+    def test_move_made_payload_quiet_move(self):
+        """Verifies TD-02: a quiet opening move yields MoveKind.QUIET (no bits set)."""
+        game = _make_hvh_game()
+        payloads: list[dict] = []
+
+        def on_move(sender, move=None, old_board=None, move_kind=None, **kwargs):
+            payloads.append({"move_kind": move_kind})
+
+        game.move_made.connect(on_move, weak=False)
+        game.apply_move(chess.E2, chess.E4)
+
+        assert len(payloads) == 1
+        assert payloads[0]["move_kind"] == MoveKind.QUIET
+        assert MoveKind.CHECK not in payloads[0]["move_kind"]
+        assert MoveKind.CAPTURE not in payloads[0]["move_kind"]
+
+    def test_move_kind_check_post_push(self, quiet_check_fen):
+        """Verifies TD-02 / Pitfall 1: CHECK bit derives from POST-push board.is_check()."""
+        game = _make_hvh_game()
+        game.board_state.load_fen(quiet_check_fen)
+        payloads: list[dict] = []
+
+        def on_move(sender, move=None, old_board=None, move_kind=None, **kwargs):
+            payloads.append({"move_kind": move_kind})
+
+        game.move_made.connect(on_move, weak=False)
+        payloads.clear()
+        # Qd1-h5 delivers check without capturing
+        game.apply_move(chess.D1, chess.H5)
+
+        assert len(payloads) == 1
+        assert MoveKind.CHECK in payloads[0]["move_kind"], "CHECK must be set when post-push board.is_check()"
+        assert MoveKind.CAPTURE not in payloads[0]["move_kind"]
+        assert MoveKind.CHECKMATE not in payloads[0]["move_kind"]
+
+    def test_broad_subscriber_signature_compatible(self):
+        """Verifies TD-02 backward-compat (Codex MEDIUM): a `(sender, move=None, **kwargs)` subscriber
+        still receives Game.move_made events without TypeError after old_board/move_kind are added.
+
+        Documents the contract from CONTEXT.md D-02 ("blinker accepts extra kwargs silently") with
+        an executable assertion. Without this test, a future regression that switches to
+        kwarg-rejecting handlers (e.g., explicit `move=move` only) would break silently.
+        """
+        game = _make_hvh_game()
+        captured: list[chess.Move | None] = []
+
+        def broad_handler(sender, move=None, **kwargs):
+            # Deliberately does NOT declare old_board or move_kind. blinker should pass them
+            # silently into **kwargs. Any TypeError here is a contract regression.
+            captured.append(move)
+
+        game.move_made.connect(broad_handler, weak=False)
+        game.apply_move(chess.E2, chess.E4)
+
+        assert len(captured) == 1, "Broad-signature subscriber must receive exactly one event"
+        assert captured[0] == chess.Move.from_uci("e2e4")
+
+
+class TestReplayToPosition:
+    """Verifies TD-03 / D-06: ChessController.replay_to_position routes through model layer."""
+
+    def setup_method(self):
+        self.game = _make_hvh_game()
+        self.controller, self.signals = _make_controller(self.game)
+        # Play three moves so navigation has range
+        self.game.apply_move(chess.E2, chess.E4)
+        self.game.apply_move(chess.E7, chess.E5)
+        self.game.apply_move(chess.G1, chess.F3)
+        self.signals["announce"].clear()
+
+    def test_replay_to_position_uses_make_move(self):
+        """Verifies TD-03: navigating to a prior position uses BoardState.undo_move (not board.push).
+
+        SCOPE (Codex MEDIUM clarification): operates on the LIVE Game.board_state.board.move_stack.
+        PGN-replay state loaded externally is Phase 2a's concern and is NOT in scope here.
+        """
+        # Navigate to position after move index 0 (just 1.e4)
+        self.controller.replay_to_position(0)
+
+        # board_state should have only one move on the stack
+        assert len(self.game.board_state.board.move_stack) == 1
+        assert self.game.board_state.board.move_stack[0] == chess.Move.from_uci("e2e4")
+        # Announce signal must have fired
+        assert any(
+            "position" in text.lower() or "move" in text.lower()
+            for text in self.signals["announce"]
+        )
+
+    def test_replay_to_position_clamps_out_of_range(self):
+        """Verifies TD-03: out-of-range target_index is clamped (no IndexError)."""
+        self.controller.replay_to_position(99)  # past end
+        assert len(self.game.board_state.board.move_stack) == 3
+        self.controller.replay_to_position(-5)  # before start
+        assert len(self.game.board_state.board.move_stack) == 0
+
+
+class TestOldBoardProvenance:
+    """Verifies TD-03 / D-03 BEHAVIORAL (Codex MEDIUM, primary evidence):
+    old_board reaches subscribers ONLY via BoardState.move_made; no controller-side reconstruction.
+    """
+
+    def test_old_board_arrives_via_board_state_signal(self):
+        """Verifies D-03: payload.old_board equals the FEN observed BEFORE the push, sourced from BoardState.
+
+        Behavioral evidence: snapshots the FEN before a move, then asserts the move_made payload
+        carries that exact FEN as old_board. This proves the value flowed through the signal —
+        not reconstructed downstream by replaying move_stack.
+        """
+        game = _make_hvh_game()
+        captured: list[dict] = []
+
+        def on_move(sender, move=None, old_board=None, move_kind=None, **kwargs):
+            captured.append({"old_board": old_board, "move": move})
+
+        game.move_made.connect(on_move, weak=False)
+
+        fen_before_move = game.board_state.board.fen()
+        game.apply_move(chess.E2, chess.E4)
+
+        assert len(captured) == 1
+        payload = captured[0]
+        assert payload["old_board"] is not None
+        assert payload["old_board"].fen() == fen_before_move, (
+            "old_board must equal the pre-push position FEN; "
+            "it must arrive via BoardState.move_made.send(...) — not be reconstructed downstream."
+        )
+
+    def test_no_controller_side_reconstruction_of_old_board(self):
+        """Verifies D-03: ChessController._on_model_move does NOT reconstruct old_board itself.
+
+        Reads the source of _on_model_move via inspect; asserts there is no `board.copy()` followed
+        by `.pop()` or any `move_stack`-replay loop. Behavioral counterpart to the source-grep
+        guardrail in TestPendingOldBoardRemoved.
+        """
+        handler_source = inspect.getsource(ChessController._on_model_move)
+        assert ".copy()" not in handler_source or ".pop()" not in handler_source, (
+            "TD-03 / D-03: _on_model_move must NOT reconstruct old_board via board.copy(); .pop() — "
+            "old_board arrives via the move_made signal kwarg from BoardState."
+        )
+        assert "move_stack" not in handler_source, (
+            "TD-03 / D-03: _on_model_move must NOT iterate move_stack to reconstruct prior position — "
+            "Performance #1's O(n) replay path was eliminated. old_board comes from the signal."
+        )
+
+
+class TestPendingOldBoardRemoved:
+    """[guardrail] Verifies TD-03 / D-03 source-grep secondary check (Codex MEDIUM)."""
+
+    def test_pending_old_board_removed(self):
+        """[guardrail] Verifies D-03: ChessController source contains zero _pending_old_board references.
+
+        Secondary evidence — primary behavioral proof is TestOldBoardProvenance above.
+        This guardrail catches future re-introductions during refactoring; do NOT treat
+        it as the sole proof of D-03 compliance.
+        """
+        source = inspect.getsource(ChessController)
+        assert (
+            "_pending_old_board" not in source
+        ), "TD-03 / D-03: _pending_old_board must not be reintroduced (guardrail)"

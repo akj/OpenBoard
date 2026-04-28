@@ -195,3 +195,38 @@ def test_unload_opening_book_no_book():
     game = Game()
     # Should not raise an exception
     game.unload_opening_book()
+
+
+class TestMoveUndoneForwarder:
+    """Verifies TD-01 / CONCERNS.md Bug #1: Game.move_undone signal is reconnected after Game.new_game()."""
+
+    def test_move_undone_signal_reconnects_after_new_game(self):
+        """Verifies TD-01: subscribers bound to Game.move_undone receive events after new_game().
+
+        Without the D-04 fix, this test FAILS at the connect call because Game has no
+        move_undone attribute, OR fails at the second-game assertion because the controller-
+        equivalent subscriber is connected to the discarded BoardState.
+        """
+        from openboard.models.game_mode import GameConfig, GameMode
+
+        game = Game(config=GameConfig(mode=GameMode.HUMAN_VS_HUMAN))
+        undo_events: list[chess.Move | None] = []
+
+        def on_undone(sender, move=None, **kwargs):
+            undo_events.append(move)
+
+        # Subscribe to Game.move_undone (the forwarder), NOT board_state.move_undone
+        game.move_undone.connect(on_undone, weak=False)
+
+        # First game: undo works
+        game.apply_move(chess.E2, chess.E4)
+        game.board_state.undo_move()
+        assert len(undo_events) == 1, "first-game undo must fire"
+
+        # New game; without D-04 fix, the forwarder is stale
+        game.new_game()
+
+        # Second game: undo must STILL work
+        game.apply_move(chess.E2, chess.E4)
+        game.board_state.undo_move()
+        assert len(undo_events) == 2, "post-new_game undo must fire — TD-01 regression"
