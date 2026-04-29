@@ -1,17 +1,20 @@
 import asyncio
 import logging
 import threading
-from typing import Any, Self, AsyncIterator
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Self
 
 import chess
 import chess.engine
 
 from .engine_detection import EngineDetector
 from ..exceptions import (
-    EngineNotFoundError,
     EngineInitializationError,
+    EngineNotFoundError,
+    EngineProcessError,
+    EngineTimeoutError,
 )
 
 
@@ -135,11 +138,16 @@ class EngineAdapter:
 
             try:
                 future.result(timeout=15.0)  # Increased timeout for engine startup
-            except Exception as e:
-                msg = f"Failed to launch engine at '{self.engine_path}': {e}"
+            except (EngineNotFoundError, EngineProcessError, EngineInitializationError):
+                # Typed engine exceptions propagate as-is for callers that need to
+                # distinguish startup failure reasons.
+                self.stop()
+                raise
+            except Exception as launch_exc:
+                msg = f"Failed to launch engine at '{self.engine_path}': {launch_exc}"
                 self._logger.error(msg)
                 self.stop()
-                raise RuntimeError(msg) from e
+                raise RuntimeError(msg) from launch_exc
             finally:
                 self._active_futures.discard(future)
 
@@ -249,16 +257,20 @@ class EngineAdapter:
 
         except FileNotFoundError:
             raise EngineNotFoundError(f"Engine at {self.engine_path}")
-        except PermissionError:
-            raise RuntimeError(
-                f"Permission denied executing engine: {self.engine_path}"
-            )
+        except PermissionError as permission_exc:
+            raise EngineProcessError(
+                f"Engine startup failed: {permission_exc}",
+                stderr=str(permission_exc),
+            ) from permission_exc
         except chess.engine.EngineTerminatedError as e:
             raise EngineInitializationError(f"Engine terminated during startup: {e}")
 
-        except Exception as e:
-            self._logger.error(f"Failed to start engine at '{self.engine_path}': {e}")
-            raise RuntimeError(f"Engine startup failed: {e}") from e
+        except Exception as startup_exc:
+            self._logger.error(f"Failed to start engine at '{self.engine_path}': {startup_exc}")
+            raise EngineProcessError(
+                f"Engine startup failed: {startup_exc}",
+                stderr=str(startup_exc),
+            ) from startup_exc
 
     def _validate_board_state(self, position: str | chess.Board) -> chess.Board:
         """Validate and convert position to chess.Board."""
@@ -456,10 +468,15 @@ class EngineAdapter:
             total_timeout = base_timeout + buffer_timeout + 5.0  # Minimum 5s buffer
 
             return future.result(timeout=total_timeout)
-        except Exception as e:
-            msg = f"Engine failed to compute best move: {e}"
+        except FutureTimeoutError as timeout_exc:
+            self._logger.error(
+                f"Engine get_best_move timed out after {total_timeout:.1f}s"
+            )
+            raise EngineTimeoutError("get_best_move", time_ms) from timeout_exc
+        except Exception as compute_exc:
+            msg = f"Engine failed to compute best move: {compute_exc}"
             self._logger.error(msg)
-            raise RuntimeError(msg) from e
+            raise RuntimeError(msg) from compute_exc
         finally:
             self._active_futures.discard(future)
 

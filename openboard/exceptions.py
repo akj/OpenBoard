@@ -130,36 +130,6 @@ class IllegalMoveError(GameError):
         self.position_fen = position_fen
 
 
-class GameStateError(GameError):
-    """Raised when game is in an invalid state for the requested operation."""
-
-    pass
-
-
-class UIError(OpenBoardError):
-    """Base class for user interface errors."""
-
-    pass
-
-
-class DialogError(UIError):
-    """Raised when dialog operations fail."""
-
-    pass
-
-
-class AccessibilityError(UIError):
-    """Raised when accessibility features encounter errors."""
-
-    pass
-
-
-class SettingsError(ConfigurationError):
-    """Raised when settings validation or loading fails."""
-
-    pass
-
-
 class NetworkError(OpenBoardError):
     """Base class for network-related errors (for future engine downloads)."""
 

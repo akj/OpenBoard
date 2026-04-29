@@ -157,12 +157,25 @@ class TestPrunedExceptionTypes:
     def test_pruned_exception_types_unimportable(self, type_name):
         """Verifies TD-11 / D-19: <type_name> is removed from openboard/exceptions.py.
 
-        Re-imports the module to get a fresh namespace, then asserts the type is absent.
+        Imports the module fresh and asserts the type is absent. Uses import_module to
+        avoid reload() which would change class identity and break isinstance checks in
+        other tests running in the same session.
         """
-        module = importlib.reload(importlib.import_module("openboard.exceptions"))
-        assert not hasattr(module, type_name), (
-            f"TD-11 / D-19: {type_name} must be removed from openboard/exceptions.py"
-        )
+        import sys
+        # Remove cached module to force a clean import for inspection only
+        cached_module = sys.modules.get("openboard.exceptions")
+        try:
+            # Remove and re-import to get the live definition
+            if "openboard.exceptions" in sys.modules:
+                del sys.modules["openboard.exceptions"]
+            module = importlib.import_module("openboard.exceptions")
+            assert not hasattr(module, type_name), (
+                f"TD-11 / D-19: {type_name} must be removed from openboard/exceptions.py"
+            )
+        finally:
+            # Restore original module so other tests are unaffected
+            if cached_module is not None:
+                sys.modules["openboard.exceptions"] = cached_module
 
 
 class TestKeptExceptionTypes:

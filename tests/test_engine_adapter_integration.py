@@ -126,19 +126,24 @@ class TestEngineAdapterLifecycle:
 
     @patch("chess.engine.popen_uci")
     def test_engine_start_failure(self, mock_popen_uci, mock_engine_path):
-        """Test engine startup failure."""
+        """Test engine startup failure raises a typed engine exception (TD-11 / D-19)."""
+        from openboard.exceptions import EngineNotFoundError
+
         mock_popen_uci.side_effect = FileNotFoundError("Engine not found")
 
         adapter = EngineAdapter(engine_path=mock_engine_path)
 
-        with pytest.raises(RuntimeError, match="Failed to launch engine"):
+        # TD-11 / D-19: FileNotFoundError from popen_uci raises EngineNotFoundError, not bare RuntimeError.
+        with pytest.raises(EngineNotFoundError):
             adapter.start()
 
         assert not adapter.is_running()
 
     @patch("chess.engine.popen_uci")
     def test_engine_start_timeout(self, mock_popen_uci, mock_engine_path):
-        """Test engine startup timeout."""
+        """Test engine startup timeout raises EngineProcessError (TD-11 / D-19)."""
+        from openboard.exceptions import EngineProcessError
+
         # Make popen_uci hang indefinitely by returning a coroutine that never completes
         import asyncio
 
@@ -150,7 +155,8 @@ class TestEngineAdapterLifecycle:
 
         adapter = EngineAdapter(engine_path=mock_engine_path)
 
-        with pytest.raises(RuntimeError, match="Failed to launch engine"):
+        # TD-11 / D-19: startup timeout raises EngineProcessError, not bare RuntimeError.
+        with pytest.raises(EngineProcessError, match="startup failed"):
             adapter.start()
 
         assert not adapter.is_running()

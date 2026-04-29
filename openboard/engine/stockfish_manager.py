@@ -9,6 +9,7 @@ from blinker import signal
 
 from .downloader import StockfishDownloader
 from .engine_detection import EngineDetector
+from ..exceptions import NetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,10 @@ class StockfishManager:
 
             return success
 
+        except NetworkError:
+            # Re-raise network failures so callers can distinguish connectivity issues
+            # from other installation failures (D-19 bubble-up requirement).
+            raise
         except Exception as e:
             self._logger.error(f"Installation error: {e}")
             self.installation_completed.send(
