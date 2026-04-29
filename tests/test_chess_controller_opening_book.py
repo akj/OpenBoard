@@ -9,6 +9,23 @@ import chess
 from openboard.controllers.chess_controller import ChessController
 from openboard.models.game import Game
 from openboard.models.game_mode import GameMode, GameConfig, DifficultyLevel
+from openboard.engine.engine_adapter import EngineAdapter
+
+
+def _make_sync_mock_engine_controller(move_uci="d2d4"):
+    """Return a Mock EngineAdapter that invokes callbacks synchronously.
+
+    Per TD-08 / D-13: migrated from sync request_computer_move to async pattern.
+    """
+    engine = Mock(spec=EngineAdapter)
+    engine.get_best_move.return_value = chess.Move.from_uci(move_uci)
+
+    def sync_get_best_move_async(fen, time_ms=1000, depth=None, callback=None):
+        if callback:
+            callback(chess.Move.from_uci(move_uci))
+
+    engine.get_best_move_async.side_effect = sync_get_best_move_async
+    return engine
 
 
 class TestChessControllerOpeningBookIntegration:
@@ -17,8 +34,7 @@ class TestChessControllerOpeningBookIntegration:
     def setup_method(self):
         """Set up test fixtures."""
         self.signals_received = []
-        self.mock_engine = Mock()
-        self.mock_engine.get_best_move.return_value = chess.Move.from_uci("d2d4")
+        self.mock_engine = _make_sync_mock_engine_controller(move_uci="d2d4")
 
     def _capture_signal(self, sender, **kwargs):
         """Helper to capture emitted signals."""
@@ -89,13 +105,14 @@ class TestChessControllerOpeningBookIntegration:
                 chess.Move.from_uci("d2d4")
             )  # White plays first
 
-            # Request computer move - should use book
-            result = game.request_computer_move()
+            # Request computer move - should use book (TD-08 migration to async)
+            game.request_computer_move_async()
 
-            assert result == chess.Move.from_uci("d7d5")
+            assert len(self.signals_received) == 1
+            assert self.signals_received[0][1]["move"] == chess.Move.from_uci("d7d5")
             assert controller.game is game  # Ensure controller is properly initialized
             # Engine should not have been called since book move was used
-            self.mock_engine.get_best_move.assert_not_called()
+            self.mock_engine.get_best_move_async.assert_not_called()
 
         finally:
             os.unlink(temp_path)

@@ -1,5 +1,6 @@
 import chess
 from blinker import Signal
+from typing import NamedTuple
 
 from .board_state import BoardState
 from .move_kind import MoveKind
@@ -14,6 +15,20 @@ from .game_mode import (
 from ..engine.engine_adapter import EngineAdapter
 from ..logging_config import get_logger
 from ..exceptions import EngineError, GameModeError, OpeningBookError
+
+
+class MoveContext(NamedTuple):
+    """Resolved context for the next computer move — output of Game._resolve_move_context().
+
+    Pure data; immutable. Three fields:
+      difficulty_config: the resolved DifficultyConfig from self.config.difficulty
+      fen_before: snapshot of self.board_state.board.fen() taken before any move
+      book_move: optional opening-book hit; None if no book or no hit
+    """
+
+    difficulty_config: DifficultyConfig
+    fen_before: str
+    book_move: chess.Move | None
 
 logger = get_logger(__name__)
 
@@ -312,44 +327,26 @@ class Game:
             case _:
                 return False
 
-    def request_computer_move(self) -> chess.Move | None:
+    def _resolve_move_context(self) -> MoveContext:
+        """Resolve mode-validation + difficulty-config + FEN + book-hit for the next computer move.
+
+        PURE preamble with no side effects (TD-07 / D-14 / Codex MEDIUM):
+        - validates self.config.mode (raises GameModeError if not a computer mode)
+        - resolves difficulty_config from self.config.difficulty
+        - captures fen_before as a board FEN snapshot BEFORE any move is applied
+        - optionally returns book_move from self.opening_book (None if no book or no hit)
+
+        This method is side-effect-free: it reads state only and returns a MoveContext.
+        No signals are emitted, no moves are applied, no threading primitives are used.
+        (TD-07 / D-14)
         """
-        Request a move from the computer opponent.
-        First checks opening book, then falls back to engine if no book move available.
-        Uses difficulty-based timing and emits computer_move_ready signal.
-        :raises RuntimeError if no engine_adapter is set or not in computer mode.
-        """
-        if self.config.mode not in [
+        if self.config.mode not in (
             GameMode.HUMAN_VS_COMPUTER,
             GameMode.COMPUTER_VS_COMPUTER,
-        ]:
+        ):
             raise GameModeError("Not in a computer vs mode")
 
-        # First try to get a move from the opening book
-        if self.opening_book and self.opening_book.is_loaded:
-            try:
-                book_move = self.opening_book.get_move(
-                    self.board_state.board,
-                    minimum_weight=1,
-                )
-                if book_move:
-                    logger.info(f"Using opening book move: {book_move}")
-                    # Capture board state before move for proper announcement
-                    old_board = self.board_state.board.copy()
-                    # Apply the book move
-                    self.board_state.make_move(book_move)
-                    self.computer_move_ready.send(
-                        self, move=book_move, source="book", old_board=old_board
-                    )
-                    return book_move
-            except Exception as e:
-                logger.warning(f"Error getting book move, falling back to engine: {e}")
-
-        # Fallback to engine if no book move or book unavailable
-        if not self.engine_adapter:
-            raise EngineError("No chess engine available for computer opponent")
-
-        # Determine which difficulty to use based on whose turn it is
+        # Resolve difficulty config based on mode and current turn
         difficulty_config: DifficultyConfig
         match self.config.mode:
             case GameMode.HUMAN_VS_COMPUTER:
@@ -380,94 +377,58 @@ class Game:
                     f"Computer moves not supported for mode: {self.config.mode}"
                 )
 
-        fen = self.board_state._board.fen()
+        # Snapshot FEN before any move is applied
+        fen_before = self.board_state.board.fen()
 
-        # Use difficulty-based timing and/or depth
-        best_move = self.engine_adapter.get_best_move(
-            fen, difficulty_config.time_ms, difficulty_config.depth
+        # Optionally consult opening book (pure lookup — no move applied here)
+        book_move: chess.Move | None = None
+        if self.opening_book is not None and self.opening_book.is_loaded:
+            try:
+                book_move = self.opening_book.get_move(
+                    self.board_state.board,
+                    minimum_weight=1,
+                )
+            except Exception as book_error:
+                logger.warning(f"Opening book lookup failed, will use engine: {book_error}")
+                book_move = None
+
+        return MoveContext(
+            difficulty_config=difficulty_config,
+            fen_before=fen_before,
+            book_move=book_move,
         )
 
-        if best_move:
-            logger.info(f"Using engine move: {best_move}")
-            # Capture board state before move for proper announcement
-            old_board = self.board_state.board.copy()
-            # Apply the engine move
-            self.board_state.make_move(best_move)
-            self.computer_move_ready.send(
-                self, move=best_move, source="engine", old_board=old_board
-            )
+    def request_computer_move_async(self, callback=None) -> None:
+        """Request a computer move asynchronously.
 
-        return best_move
-
-    def request_computer_move_async(self) -> None:
-        """
-        Request a computer move asynchronously.
         First checks opening book, then falls back to engine if no book move available.
         Emits computer_move_ready signal when computation is complete.
-        :raises RuntimeError if no engine_adapter is set or not in computer mode.
+
+        :param callback: Optional callback called with the move when complete.
+        :raises GameModeError: If not in a computer mode.
+        :raises EngineNotFoundError: If engine_adapter is None and no book move available.
+        (TD-07 / TD-08 / Codex MEDIUM)
         """
-        if self.config.mode not in [
-            GameMode.HUMAN_VS_COMPUTER,
-            GameMode.COMPUTER_VS_COMPUTER,
-        ]:
-            raise GameModeError("Not in a computer vs mode")
+        context = self._resolve_move_context()
 
-        # First try to get a move from the opening book
-        if self.opening_book and self.opening_book.is_loaded:
-            try:
-                book_move = self.opening_book.get_move(
-                    self.board_state.board,
-                    minimum_weight=1,
-                )
-                if book_move:
-                    logger.info(f"Using opening book move (async): {book_move}")
-                    # Capture board state before move for proper announcement
-                    old_board = self.board_state.board.copy()
-                    # Apply the book move and emit signal
-                    self.board_state.make_move(book_move)
-                    self.computer_move_ready.send(
-                        self, move=book_move, source="book", old_board=old_board
-                    )
-                    return
-            except Exception as e:
-                logger.warning(f"Error getting book move, falling back to engine: {e}")
+        # Book-hit short-circuit: apply book move synchronously and return
+        if context.book_move is not None:
+            logger.info(f"Using opening book move (async): {context.book_move}")
+            old_board = self.board_state.board.copy()
+            self.board_state.make_move(context.book_move)
+            self.computer_move_ready.send(
+                self, move=context.book_move, source="book", old_board=old_board
+            )
+            if callback:
+                callback(context.book_move)
+            return
 
-        # Fallback to engine if no book move or book unavailable
-        if not self.engine_adapter:
-            raise EngineError("No chess engine available for computer opponent")
-
-        # Determine which difficulty to use based on whose turn it is
-        difficulty_config: DifficultyConfig
-        match self.config.mode:
-            case GameMode.HUMAN_VS_COMPUTER:
-                if not self.config.difficulty:
-                    raise GameModeError("No difficulty level set for computer opponent")
-                difficulty_config = get_difficulty_config(self.config.difficulty)
-            case GameMode.COMPUTER_VS_COMPUTER:
-                current_turn = self.board_state.board.turn
-                match current_turn:
-                    case chess.WHITE:
-                        if not self.config.white_difficulty:
-                            raise GameModeError(
-                                "No difficulty level set for white computer"
-                            )
-                        difficulty_config = get_difficulty_config(
-                            self.config.white_difficulty
-                        )
-                    case _:  # chess.BLACK
-                        if not self.config.black_difficulty:
-                            raise GameModeError(
-                                "No difficulty level set for black computer"
-                            )
-                        difficulty_config = get_difficulty_config(
-                            self.config.black_difficulty
-                        )
-            case _:
-                raise GameModeError(
-                    f"Computer moves not supported for mode: {self.config.mode}"
-                )
-
-        fen = self.board_state._board.fen()
+        # Engine-optional: raise typed error if no engine AND no book hit (Codex MEDIUM)
+        if self.engine_adapter is None:
+            raise EngineError(
+                "No chess engine available for computer opponent",
+                "No engine adapter configured and no opening book move available",
+            )
 
         def on_move_ready(result):
             """Callback when computer move computation is complete."""
@@ -489,11 +450,13 @@ class Game:
                     self.computer_move_ready.send(
                         self, move=None, error="Engine returned no move"
                     )
+            if callback:
+                callback(result)
 
         # Use async version with callback
         self.engine_adapter.get_best_move_async(
-            fen,
-            difficulty_config.time_ms,
-            difficulty_config.depth,
+            context.fen_before,
+            context.difficulty_config.time_ms,
+            context.difficulty_config.depth,
             callback=on_move_ready,
         )

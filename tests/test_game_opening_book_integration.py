@@ -12,6 +12,24 @@ from openboard.models.game import Game
 from openboard.models.opening_book import OpeningBook
 from openboard.models.game_mode import GameMode, GameConfig, DifficultyLevel
 from openboard.exceptions import OpeningBookError
+from openboard.engine.engine_adapter import EngineAdapter
+
+
+def _make_sync_mock_engine_book(move_uci="d7d5"):
+    """Return a Mock EngineAdapter that invokes callbacks synchronously.
+
+    Per TD-08 / D-13 migration: test callers moved from sync request_computer_move
+    to async pattern using Mock(spec=EngineAdapter) inline-callback.
+    """
+    engine = Mock(spec=EngineAdapter)
+    engine.get_best_move.return_value = chess.Move.from_uci(move_uci)
+
+    def sync_get_best_move_async(fen, time_ms=1000, depth=None, callback=None):
+        if callback:
+            callback(chess.Move.from_uci(move_uci))
+
+    engine.get_best_move_async.side_effect = sync_get_best_move_async
+    return engine
 
 
 class TestGameOpeningBookIntegration:
@@ -20,10 +38,7 @@ class TestGameOpeningBookIntegration:
     def setup_method(self):
         """Set up test fixtures."""
         self.signals_received = []
-        self.mock_engine = Mock()
-        self.mock_engine.get_best_move.return_value = chess.Move.from_uci(
-            "d7d5"
-        )  # Legal move for black
+        self.mock_engine = _make_sync_mock_engine_book(move_uci="d7d5")
 
     def _capture_signal(self, sender, **kwargs):
         """Helper to capture emitted signals."""
@@ -150,7 +165,7 @@ class TestGameOpeningBookIntegration:
         game.close_opening_book()
 
     def test_computer_move_with_book_move(self):
-        """Test computer move using opening book."""
+        """Test computer move using opening book (TD-08 migration to async)."""
         config = GameConfig(
             mode=GameMode.HUMAN_VS_COMPUTER,
             human_color=chess.WHITE,
@@ -172,18 +187,17 @@ class TestGameOpeningBookIntegration:
         # Make it computer's turn (black)
         game.board_state._board.push(chess.Move.from_uci("d2d4"))  # White plays first
 
-        result = game.request_computer_move()
+        game.request_computer_move_async()
 
-        assert result == chess.Move.from_uci("d7d5")
         assert len(self.signals_received) == 1
         assert self.signals_received[0][1]["move"] == chess.Move.from_uci("d7d5")
         assert self.signals_received[0][1]["source"] == "book"
 
         # Engine should not have been called
-        self.mock_engine.get_best_move.assert_not_called()
+        self.mock_engine.get_best_move_async.assert_not_called()
 
     def test_computer_move_fallback_to_engine(self):
-        """Test computer move falls back to engine when no book move available."""
+        """Test computer move falls back to engine when no book move available (TD-08 migration)."""
         config = GameConfig(
             mode=GameMode.HUMAN_VS_COMPUTER,
             human_color=chess.WHITE,
@@ -202,18 +216,17 @@ class TestGameOpeningBookIntegration:
         # Make it computer's turn (black)
         game.board_state._board.push(chess.Move.from_uci("d2d4"))  # White plays first
 
-        result = game.request_computer_move()
+        game.request_computer_move_async()
 
-        assert result == chess.Move.from_uci("d7d5")
         assert len(self.signals_received) == 1
         assert self.signals_received[0][1]["move"] == chess.Move.from_uci("d7d5")
         assert self.signals_received[0][1]["source"] == "engine"
 
         # Engine should have been called
-        self.mock_engine.get_best_move.assert_called_once()
+        self.mock_engine.get_best_move_async.assert_called_once()
 
     def test_computer_move_book_error_fallback(self):
-        """Test computer move falls back to engine when book has error."""
+        """Test computer move falls back to engine when book has error (TD-08 migration)."""
         config = GameConfig(
             mode=GameMode.HUMAN_VS_COMPUTER,
             human_color=chess.WHITE,
@@ -232,17 +245,16 @@ class TestGameOpeningBookIntegration:
         # Make it computer's turn (black)
         game.board_state._board.push(chess.Move.from_uci("d2d4"))  # White plays first
 
-        result = game.request_computer_move()
+        game.request_computer_move_async()
 
-        assert result == chess.Move.from_uci("d7d5")
         assert len(self.signals_received) == 1
         assert self.signals_received[0][1]["source"] == "engine"
 
         # Engine should have been called as fallback
-        self.mock_engine.get_best_move.assert_called_once()
+        self.mock_engine.get_best_move_async.assert_called_once()
 
     def test_computer_move_no_book_uses_engine(self):
-        """Test computer move uses engine when no book is loaded."""
+        """Test computer move uses engine when no book is loaded (TD-08 migration)."""
         config = GameConfig(
             mode=GameMode.HUMAN_VS_COMPUTER,
             human_color=chess.WHITE,
@@ -254,11 +266,10 @@ class TestGameOpeningBookIntegration:
         # Make it computer's turn (black)
         game.board_state._board.push(chess.Move.from_uci("d2d4"))  # White plays first
 
-        result = game.request_computer_move()
+        game.request_computer_move_async()
 
-        assert result == chess.Move.from_uci("d7d5")
         assert len(self.signals_received) == 1
         assert self.signals_received[0][1]["source"] == "engine"
 
         # Engine should have been called
-        self.mock_engine.get_best_move.assert_called_once()
+        self.mock_engine.get_best_move_async.assert_called_once()

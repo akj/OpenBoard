@@ -130,8 +130,25 @@ def test_game_is_computer_turn_human_vs_human():
     assert not game.is_computer_turn()
 
 
+def _make_sync_mock_engine(move_uci="e7e5"):
+    """Return a Mock EngineAdapter that invokes callbacks synchronously.
+
+    Per TD-08 / D-13 migration: all sync request_computer_move callers migrated
+    to request_computer_move_async via Mock(spec=EngineAdapter) inline-callback pattern.
+    """
+    engine = Mock(spec=EngineAdapter)
+    engine.get_best_move.return_value = chess.Move.from_uci(move_uci)
+
+    def sync_get_best_move_async(fen, time_ms=1000, depth=None, callback=None):
+        if callback:
+            callback(chess.Move.from_uci(move_uci))
+
+    engine.get_best_move_async.side_effect = sync_get_best_move_async
+    return engine
+
+
 def test_game_request_computer_move_no_engine():
-    """Test request_computer_move without engine raises error."""
+    """Test request_computer_move_async without engine raises error (TD-08 migration)."""
     config = GameConfig(
         mode=GameMode.HUMAN_VS_COMPUTER,
         human_color=chess.WHITE,
@@ -140,23 +157,21 @@ def test_game_request_computer_move_no_engine():
     game = Game(config=config)  # No engine
 
     with pytest.raises(EngineError, match="No chess engine available"):
-        game.request_computer_move()
+        game.request_computer_move_async()
 
 
 def test_game_request_computer_move_wrong_mode():
-    """Test request_computer_move in wrong mode raises error."""
+    """Test request_computer_move_async in wrong mode raises error (TD-08 migration)."""
     config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN)
     game = Game(config=config)
 
     with pytest.raises(GameModeError, match="Not in a computer vs mode"):
-        game.request_computer_move()
+        game.request_computer_move_async()
 
 
 def test_game_request_computer_move_success():
-    """Test successful computer move request."""
-    # Mock engine
-    mock_engine = Mock(spec=EngineAdapter)
-    mock_engine.get_best_move.return_value = chess.Move.from_uci("e7e5")
+    """Test successful computer move via async path (TD-08 migration)."""
+    mock_engine = _make_sync_mock_engine(move_uci="e7e5")
 
     config = GameConfig(
         mode=GameMode.HUMAN_VS_COMPUTER,
@@ -168,18 +183,24 @@ def test_game_request_computer_move_success():
     # Make human move first
     game.apply_move(chess.E2, chess.E4)
 
-    # Request computer move
-    move = game.request_computer_move()
+    # Capture move via signal (async pattern — no return value)
+    move_events = []
 
-    assert move == chess.Move.from_uci("e7e5")
-    mock_engine.get_best_move.assert_called_once()
+    def on_move_ready(sender, move=None, source=None, **kwargs):
+        move_events.append(move)
+
+    game.computer_move_ready.connect(on_move_ready, weak=False)
+    game.request_computer_move_async()
+
+    assert len(move_events) == 1
+    assert move_events[0] == chess.Move.from_uci("e7e5")
+    mock_engine.get_best_move_async.assert_called_once()
 
     # Check that difficulty time and depth were used
-    call_args = mock_engine.get_best_move.call_args
-    difficulty_config = get_difficulty_config(DifficultyLevel.BEGINNER)
-    # call_args is (args, kwargs), we want the second and third positional arguments
-    assert call_args[0][1] == difficulty_config.time_ms
-    assert call_args[0][2] == difficulty_config.depth
+    call_args = mock_engine.get_best_move_async.call_args
+    difficulty_config_val = get_difficulty_config(DifficultyLevel.BEGINNER)
+    assert call_args[0][1] == difficulty_config_val.time_ms
+    assert call_args[0][2] == difficulty_config_val.depth
 
 
 def test_game_new_game_with_config():
@@ -249,9 +270,8 @@ def test_computer_vs_computer_is_computer_turn():
 
 
 def test_computer_vs_computer_move_white():
-    """Test computer move for white in computer vs computer mode."""
-    mock_engine = Mock(spec=EngineAdapter)
-    mock_engine.get_best_move.return_value = chess.Move.from_uci("e2e4")
+    """Test computer move for white in computer vs computer mode (TD-08 migration)."""
+    mock_engine = _make_sync_mock_engine(move_uci="e2e4")
 
     config = GameConfig(
         mode=GameMode.COMPUTER_VS_COMPUTER,
@@ -260,21 +280,27 @@ def test_computer_vs_computer_move_white():
     )
     game = Game(engine_adapter=mock_engine, config=config)
 
-    # Request white's first move
-    move = game.request_computer_move()
+    # Capture move via signal (async pattern)
+    move_events = []
 
-    assert move == chess.Move.from_uci("e2e4")
+    def on_move_ready(sender, move=None, source=None, **kwargs):
+        move_events.append(move)
+
+    game.computer_move_ready.connect(on_move_ready, weak=False)
+    game.request_computer_move_async()
+
+    assert len(move_events) == 1
+    assert move_events[0] == chess.Move.from_uci("e2e4")
     # Should use white difficulty (BEGINNER = 150ms, depth=2)
-    difficulty_config = get_difficulty_config(DifficultyLevel.BEGINNER)
-    call_args = mock_engine.get_best_move.call_args
-    assert call_args[0][1] == difficulty_config.time_ms
-    assert call_args[0][2] == difficulty_config.depth
+    difficulty_config_val = get_difficulty_config(DifficultyLevel.BEGINNER)
+    call_args = mock_engine.get_best_move_async.call_args
+    assert call_args[0][1] == difficulty_config_val.time_ms
+    assert call_args[0][2] == difficulty_config_val.depth
 
 
 def test_computer_vs_computer_move_black():
-    """Test computer move for black in computer vs computer mode."""
-    mock_engine = Mock(spec=EngineAdapter)
-    mock_engine.get_best_move.return_value = chess.Move.from_uci("e7e5")
+    """Test computer move for black in computer vs computer mode (TD-08 migration)."""
+    mock_engine = _make_sync_mock_engine(move_uci="e7e5")
 
     config = GameConfig(
         mode=GameMode.COMPUTER_VS_COMPUTER,
@@ -286,12 +312,19 @@ def test_computer_vs_computer_move_black():
     # Make white's move first
     game.apply_move(chess.E2, chess.E4)
 
-    # Request black's move
-    move = game.request_computer_move()
+    # Capture move via signal (async pattern)
+    move_events = []
 
-    assert move == chess.Move.from_uci("e7e5")
+    def on_move_ready(sender, move=None, source=None, **kwargs):
+        move_events.append(move)
+
+    game.computer_move_ready.connect(on_move_ready, weak=False)
+    game.request_computer_move_async()
+
+    assert len(move_events) == 1
+    assert move_events[0] == chess.Move.from_uci("e7e5")
     # Should use black difficulty (ADVANCED = 1500ms, depth=6)
-    difficulty_config = get_difficulty_config(DifficultyLevel.ADVANCED)
-    call_args = mock_engine.get_best_move.call_args
-    assert call_args[0][1] == difficulty_config.time_ms
-    assert call_args[0][2] == difficulty_config.depth
+    difficulty_config_val = get_difficulty_config(DifficultyLevel.ADVANCED)
+    call_args = mock_engine.get_best_move_async.call_args
+    assert call_args[0][1] == difficulty_config_val.time_ms
+    assert call_args[0][2] == difficulty_config_val.depth
