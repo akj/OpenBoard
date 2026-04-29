@@ -41,6 +41,15 @@ class StockfishManager:
         self.detector = EngineDetector()
         self._logger = logging.getLogger(__name__)
 
+        # Codex MEDIUM: single startup INFO since downloads use HTTPS-only verification.
+        # Per-download integrity gap is DEBUG in download_file; this is the operator-visible
+        # announcement. Stockfish releases publish no per-asset checksums (RESEARCH.md Pitfall 5).
+        self._logger.info(
+            "Stockfish manager initialized: no upstream checksum source configured; "
+            "downloads will use HTTPS-only verification "
+            "(Stockfish releases publish no per-asset checksums)."
+        )
+
     def get_status(self) -> dict[str, Any]:
         """
         Get comprehensive Stockfish status information.
