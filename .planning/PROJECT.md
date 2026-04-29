@@ -35,12 +35,11 @@ information.
 - ✓ JSON-driven keyboard configuration — existing
 - ✓ Cross-platform builds (Windows .exe, macOS .dmg, Linux .deb / .rpm) — existing
 - ✓ Engine-optional startup (app launches and functions without Stockfish) — existing
+- ✓ Tech debt cleanup — every bug and tech-debt item from `.planning/codebase/CONCERNS.md` fixed; structural patterns (signal forwarders, model-routed navigation, `platformdirs` persistence, specific menu IDs, `move_made(old_board, move_kind)` payload, typed exception hierarchy) established. *Validated in Phase 1.*
 
 ### Active
 
 <!-- v1: Foundation & Polish. Each bullet expands into REQ-IDs in REQUIREMENTS.md. -->
-
-- [ ] Tech debt cleanup — fix every bug and tech-debt item documented in `.planning/codebase/CONCERNS.md`
 - [ ] PGN save and load (game with headers, time, result; load any standard .pgn)
 - [ ] FEN save and load (current position; setup-from-FEN entry point)
 - [ ] Auto-save in-progress game so it survives a restart (crash recovery)
@@ -113,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-27 after initialization*
+*Last updated: 2026-04-29 after Phase 1 completion*
