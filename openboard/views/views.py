@@ -635,61 +635,8 @@ class ChessFrame(wx.Frame):
                 text="Cannot navigate to different positions during an ongoing game",
             )
         elif selected_position is not None:
-            # Navigate to the selected position (game is finished or in replay mode)
-            self._navigate_to_position(selected_position, move_list)
-
-    def _navigate_to_position(self, target_position: int, move_list):
-        """Navigate to a specific position in the game."""
-        current_position = len(self.controller.game.board_state.board.move_stack) - 1
-
-        if target_position == current_position:
-            self.controller.announce.send(
-                self.controller, text="Already at selected position"
-            )
-            return
-
-        # Calculate how many moves to undo or redo
-        if target_position < current_position:
-            # Need to undo moves
-            moves_to_undo = current_position - target_position
-            for _ in range(moves_to_undo):
-                try:
-                    self.controller.undo()
-                except IndexError:
-                    break
-
-            if target_position < 0:
-                self.controller.announce.send(
-                    self.controller, text="Navigated to starting position"
-                )
-            else:
-                self.controller.announce.send(
-                    self.controller,
-                    text=f"Navigated to position after move {target_position + 1}",
-                )
-
-        elif target_position > current_position:
-            # Need to replay moves
-            board = self.controller.game.board_state.board
-            moves_to_replay = target_position - current_position
-
-            for i in range(moves_to_replay):
-                move_index = current_position + 1 + i
-                if move_index < len(move_list):
-                    move = move_list[move_index]
-                    try:
-                        board.push(move)
-                        # Emit the move signal manually to update the view
-                        self.controller.game.board_state.move_made.send(
-                            self.controller.game.board_state, move=move
-                        )
-                    except (ValueError, IndexError):
-                        break
-
-            self.controller.announce.send(
-                self.controller,
-                text=f"Navigated to position after move {target_position + 1}",
-            )
+            # Navigate to the selected position via model-routed controller method (TD-03 / D-06)
+            self.controller.replay_to_position(selected_position)
 
     def _load_keyboard_config(self) -> GameKeyboardConfig:
         """Load keyboard configuration from JSON file or use default."""

@@ -435,7 +435,7 @@ class TestChessControllerAnnouncements:
         self.game.board_state.make_move(chess.Move.from_uci("e2e4"))
         self.game.board_state.make_move(chess.Move.from_uci("d7d5"))
         self.signals["announce"].clear()
-        self.controller._pending_old_board = self.game.board_state.board.copy()
+        # old_board now flows through BoardState.move_made signal automatically (D-03)
         self.game.board_state.make_move(chess.Move.from_uci("e4d5"))
         ann = self.signals["announce"][-1]
         assert "takes" in ann.lower() or "pawn" in ann.lower()
@@ -445,7 +445,7 @@ class TestChessControllerAnnouncements:
         fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
-        self.controller._pending_old_board = self.game.board_state.board.copy()
+        # old_board now flows through BoardState.move_made signal automatically (D-03)
         self.game.board_state.make_move(chess.Move.from_uci("e1g1"))
         ann = self.signals["announce"][-1]
         assert "kingside" in ann.lower()
@@ -455,7 +455,7 @@ class TestChessControllerAnnouncements:
         fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
-        self.controller._pending_old_board = self.game.board_state.board.copy()
+        # old_board now flows through BoardState.move_made signal automatically (D-03)
         self.game.board_state.make_move(chess.Move.from_uci("e1c1"))
         ann = self.signals["announce"][-1]
         assert "queenside" in ann.lower()
@@ -465,7 +465,7 @@ class TestChessControllerAnnouncements:
         fen = "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
-        self.controller._pending_old_board = self.game.board_state.board.copy()
+        # old_board now flows through BoardState.move_made signal automatically (D-03)
         self.game.board_state.make_move(chess.Move.from_uci("e5f6"))
         ann = self.signals["announce"][-1]
         assert "en passant" in ann.lower()
@@ -475,7 +475,7 @@ class TestChessControllerAnnouncements:
         fen = "8/P7/8/8/8/8/8/4K2k w - - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
-        self.controller._pending_old_board = self.game.board_state.board.copy()
+        # old_board now flows through BoardState.move_made signal automatically (D-03)
         self.game.board_state.make_move(chess.Move.from_uci("a7a8q"))
         ann = self.signals["announce"][-1]
         assert "promot" in ann.lower()

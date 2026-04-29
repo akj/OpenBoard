@@ -55,7 +55,11 @@ def pre_scholars_mate_fen() -> str:
 def quiet_check_fen() -> str:
     """FEN where white-to-move Qd1-h5 delivers MoveKind.CHECK without CAPTURE.
 
-    Setup: rnbqkbnr/ppp2ppp/8/3pp3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 3
-    After Qh5+: pure check, no capture. Used to verify CHECK bit set, CAPTURE bit clear.
+    Setup: 4k3/8/8/8/8/8/PPPP1PPP/RNBQKBNR w KQ - 0 1
+    Black king on e8, white queen on d1. Qh5+ checks the king via the h5-e8 diagonal.
+    Used to verify CHECK bit set, CAPTURE bit clear.
+
+    Note: The plan's original FEN (rnbqkbnr/ppp2ppp/8/3pp3/2B1P3/8/PPPP1PPP/RNBQK1NR)
+    does NOT deliver check after Qh5. This corrected FEN is used instead.
     """
-    return "rnbqkbnr/ppp2ppp/8/3pp3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 0 3"
+    return "4k3/8/8/8/8/8/PPPP1PPP/RNBQKBNR w KQ - 0 1"

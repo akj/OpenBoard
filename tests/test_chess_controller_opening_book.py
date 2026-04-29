@@ -127,12 +127,12 @@ class TestChessControllerOpeningBookIntegration:
         # Clear announcements from setup
         announcements.clear()
 
-        # Simulate computer move scenario where _pending_old_board is None
-        controller._pending_old_board = None
-
-        # Test the last move (d7d5 - not a capture)
+        # Test the last move (d7d5 - not a capture). old_board flows via signal (D-03).
         last_move = game.board_state.board.move_stack[-1]
-        announcement = controller._format_move_announcement(last_move)
+        # Build old_board by rolling back one move from a copy
+        old_board_for_d5 = game.board_state.board.copy()
+        old_board_for_d5.pop()
+        announcement = controller._format_move_announcement(last_move, old_board_for_d5)
 
         # Verify no false "takes" for non-capture
         assert "takes" not in announcement.lower(), (
@@ -142,17 +142,15 @@ class TestChessControllerOpeningBookIntegration:
             f"Non-capture shouldn't announce 'captures': {announcement}"
         )
 
-        # Test actual capture move with old_board = None
+        # Test actual capture move with explicit old_board
+        old_board_before_capture = game.board_state.board.copy()
         game.board_state.make_move(
             chess.Move.from_uci("e4d5")
         )  # White captures black pawn
 
-        # Reset _pending_old_board to None to simulate computer move
-        controller._pending_old_board = None
-
         # Test the capture move
         capture_move = game.board_state.board.move_stack[-1]
-        capture_msg = controller._format_move_announcement(capture_move)
+        capture_msg = controller._format_move_announcement(capture_move, old_board_before_capture)
 
         # Verify capture IS announced correctly
         has_takes = "takes" in capture_msg.lower() or "captures" in capture_msg.lower()

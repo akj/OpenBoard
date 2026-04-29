@@ -41,7 +41,7 @@ class BoardState:
         Emits status_changed.
         """
         self._board.set_fen(fen)
-        self.move_made.send(self, move=None)
+        self.move_made.send(self, move=None, old_board=None)
         self.status_changed.send(self, status=self.game_status())
 
     def load_pgn(self, pgn_text: str):
@@ -56,8 +56,9 @@ class BoardState:
         # reset board to starting position
         self._board = game.board()
         for move in game.mainline_moves():
+            old_board = self._board.copy()
             self._board.push(move)
-            self.move_made.send(self, move=move)
+            self.move_made.send(self, move=move, old_board=old_board)
         self.status_changed.send(self, status=self.game_status())
 
     def make_move(self, move: chess.Move):
@@ -67,8 +68,9 @@ class BoardState:
         """
         if move not in self._board.legal_moves:
             raise IllegalMoveError(str(move), self._board.fen())
+        old_board = self._board.copy()  # snapshot for downstream MoveKind computation
         self._board.push(move)
-        self.move_made.send(self, move=move)
+        self.move_made.send(self, move=move, old_board=old_board)  # carry old_board kwarg
         self.status_changed.send(self, status=self.game_status())
 
     def undo_move(self):

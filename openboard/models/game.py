@@ -2,6 +2,7 @@ import chess
 from blinker import Signal
 
 from .board_state import BoardState
+from .move_kind import MoveKind
 from .opening_book import OpeningBook
 from .game_mode import (
     GameMode,
@@ -55,29 +56,68 @@ class Game:
         logger.info(f"Game initialized {engine_status}, {book_status}, {mode_status}")
 
         # Signals:
-        #   move_made: forwarded from BoardState
+        #   move_made: forwarded from BoardState (enriched with old_board and move_kind)
+        #   move_undone: forwarded from BoardState (D-04 / TD-01)
         #   hint_ready: emitted when engine returns a best move
         #   computer_move_ready: emitted when computer makes a move
         #   status_changed: forwarded from BoardState
         self.move_made = Signal()
+        self.move_undone = Signal()
         self.hint_ready = Signal()
         self.computer_move_ready = Signal()
         self.status_changed = Signal()
 
-        # wire up board_state signals to our own
-        self.board_state.move_made.connect(self._on_board_move)
-        self.board_state.status_changed.connect(self._on_status)
+        # wire up board_state signals to our own via canonical forwarder helper (D-05)
+        self._connect_board_signals()
 
     @property
     def engine(self) -> EngineAdapter | None:
         """Alias for engine_adapter for backward compatibility."""
         return self.engine_adapter
 
-    def _on_board_move(self, sender, move):
-        """Forward board_state.move_made to Game.move_made."""
-        self.move_made.send(self, move=move)
+    def _connect_board_signals(self) -> None:
+        """Wire BoardState signals to Game-level forwarders.
 
-    def _on_status(self, sender, status):
+        Called from __init__ and new_game() so subscribers bound to Game.move_made,
+        Game.move_undone, Game.status_changed never need to re-subscribe across new_game.
+        (D-04 / D-05: canonical forwarder pattern for v1.)
+        """
+        self.board_state.move_made.connect(self._on_board_move)
+        self.board_state.move_undone.connect(self._on_board_undo)
+        self.board_state.status_changed.connect(self._on_status)
+
+    def _on_board_move(self, sender, move=None, old_board=None, **kwargs):
+        """Forward board_state.move_made to Game.move_made with enriched payload (D-02)."""
+        if move is None:
+            # Special case for load_fen / programmatic emission with no move
+            self.move_made.send(self, move=None, old_board=old_board, move_kind=MoveKind.QUIET)
+            return
+
+        post_push_board = self.board_state.board  # snapshot is fine; MoveKind doesn't mutate
+        move_kind = MoveKind.QUIET
+        if old_board is not None and old_board.is_capture(move):
+            move_kind |= MoveKind.CAPTURE
+        if old_board is not None and old_board.is_castling(move):
+            move_kind |= MoveKind.CASTLE
+        if old_board is not None and old_board.is_en_passant(move):
+            move_kind |= MoveKind.EN_PASSANT
+        if move.promotion is not None:
+            move_kind |= MoveKind.PROMOTION
+        # CHECK / CHECKMATE computed POST-push (Pitfall 1: never check before push)
+        if post_push_board.is_check():
+            move_kind |= MoveKind.CHECK
+        if post_push_board.is_checkmate():
+            move_kind |= MoveKind.CHECKMATE
+
+        self.move_made.send(
+            self, move=move, old_board=old_board, move_kind=move_kind
+        )
+
+    def _on_board_undo(self, sender, move=None, **kwargs):
+        """Forward board_state.move_undone to Game.move_undone."""
+        self.move_undone.send(self, move=move)
+
+    def _on_status(self, sender, status=None, **kwargs):
         """Forward board_state.status_changed to Game.status_changed."""
         self.status_changed.send(self, status=status)
 
@@ -92,10 +132,9 @@ class Game:
             else:
                 self.computer_color = None
 
-        # reinitialize board_state and re-hook signals
+        # reinitialize board_state and re-hook signals via canonical helper (D-04 / D-05)
         self.board_state = BoardState()
-        self.board_state.move_made.connect(self._on_board_move)
-        self.board_state.status_changed.connect(self._on_status)
+        self._connect_board_signals()
 
         # For backward compatibility
         self.player_color = self.config.human_color

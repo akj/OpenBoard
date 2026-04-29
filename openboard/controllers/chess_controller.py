@@ -59,19 +59,12 @@ class ChessController:
         self._replay_moves: list[chess.Move] = []
         self._replay_index: int = 0
 
-        # to help generate captures, we stash the pre‐move board when
-        # apply_move is called by the controller:
-        self._pending_old_board: chess.Board | None = None
-
-        # for computer moves, we need to capture the board before the move is made
-        self._pre_computer_move_board: chess.Board | None = None
-
         # computer move handling
         self._computer_thinking: bool = False
 
-        # hook model signals
+        # hook model signals — subscribe to Game-level forwarders (not board_state directly)
         game.move_made.connect(self._on_model_move)
-        game.board_state.move_undone.connect(self._on_model_undo)
+        game.move_undone.connect(self._on_model_undo)  # TD-01: use Game forwarder, not board_state
         game.status_changed.connect(self._on_status_changed)
         game.hint_ready.connect(self._on_hint_ready)
 
@@ -87,7 +80,7 @@ class ChessController:
 
     # —— Model signal handlers —— #
 
-    def _on_model_move(self, sender, move: chess.Move):
+    def _on_model_move(self, sender, move=None, old_board=None, move_kind=None, **kwargs):
         """Fired whenever either side (or replay) pushes a move."""
         # tell view the board changed
         self._emit_board_update()
@@ -96,18 +89,11 @@ class ChessController:
         if move is not None:
             # For computer moves, delay announcement until _on_computer_move_ready
             # provides proper capture detection context
-            is_computer_move = (
-                self._computer_thinking  # Currently processing computer move
-                or (
-                    self._pre_computer_move_board is not None
-                )  # Have captured board for computer move
-            )
+            is_computer_move = self._computer_thinking
 
             if not is_computer_move:
-                ann = self._format_move_announcement(move)
+                ann = self._format_move_announcement(move, old_board)
                 self.announce.send(self, text=ann)
-                # Clear the pending old board after announcement
-                self._pending_old_board = None
 
         # Check if computer should move next (but not during replay)
         if (
@@ -117,8 +103,8 @@ class ChessController:
         ):
             self._request_computer_move_async()
 
-    def _on_model_undo(self, sender, move: chess.Move):
-        """Fired whenever a move is undone in model."""
+    def _on_model_undo(self, sender, move=None, **kwargs):
+        """Fired whenever a move is undone in model (forwarded by Game)."""
         self._emit_board_update()
         self.announce.send(self, text="Move undone")
 
@@ -145,6 +131,7 @@ class ChessController:
         error: str | None = None,
         source: str | None = None,
         old_board: chess.Board | None = None,
+        **kwargs,
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
@@ -152,29 +139,17 @@ class ChessController:
 
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
-            # Clear the captured board state on error
-            self._pre_computer_move_board = None
         elif move and source:
-            # The move has already been applied by the Game model and announced via _on_model_move
-            # But the announcement was without the old board context
-            # So we need to re-announce with proper capture detection using the provided old_board
+            # The move has already been applied by the Game model. Re-announce with
+            # proper capture detection using old_board from the signal kwarg (D-02).
             if old_board is not None:
-                # Set the old board for the re-announcement
-                self._pending_old_board = old_board
-                # Re-announce the move with proper context
-                ann = self._format_move_announcement(move)
+                ann = self._format_move_announcement(move, old_board)
                 self.announce.send(self, text=ann)
-                # Clear the pending board
-                self._pending_old_board = None
-
-            # Clear the pre-computer move board since we're done
-            self._pre_computer_move_board = None
 
             # Announce the source of the computer move for accessibility
             source_text = "opening book" if source == "book" else "engine analysis"
             if self.announce_mode == "verbose":
                 self.announce.send(self, text=f"Computer move from {source_text}")
-        # Note: _on_model_move will also announce the move, but without capture detection
 
     # —— Public methods for view events —— #
 
@@ -410,6 +385,50 @@ class ChessController:
         else:
             self.announce.send(self, text="At start of game")
 
+    def replay_to_position(self, target_index: int) -> None:
+        """Navigate the LIVE move_stack to position after move at target_index (-1 = starting position).
+
+        SCOPE: operates on `Game.board_state.board.move_stack` only. Does NOT navigate
+        PGN-replay state loaded from outside (Phase 2a's concern). target_index refers to
+        an index into the live move_stack.
+
+        Idempotent: calling with the current index is a no-op.
+        Out-of-range: clamped to [-1, len(move_stack)-1].
+
+        Uses BoardState.make_move / undo_move exclusively — no direct board.push.
+        Eliminates the views.py:_navigate_to_position model-bypass anti-pattern.
+        (TD-03 / D-06 / Codex MEDIUM clarification)
+        """
+        live_move_stack = list(self.game.board_state.board.move_stack)
+        current_index = len(live_move_stack) - 1
+        target_index = max(-1, min(target_index, len(live_move_stack) - 1))
+
+        if target_index == current_index:
+            self.announce.send(self, text="Already at selected position")
+            return
+
+        if target_index < current_index:
+            for _ in range(current_index - target_index):
+                try:
+                    self.game.board_state.undo_move()
+                except IndexError:
+                    break
+        else:
+            # Re-apply moves from current_index+1 up to target_index. Source is the
+            # snapshot of move_stack captured BEFORE we started undoing, since
+            # undo_move() pops from the live stack but we kept the immutable list copy.
+            for next_index in range(current_index + 1, target_index + 1):
+                move = live_move_stack[next_index]
+                try:
+                    self.game.board_state.make_move(move)
+                except (IllegalMoveError, IndexError):
+                    break
+
+        if target_index < 0:
+            self.announce.send(self, text="Navigated to starting position")
+        else:
+            self.announce.send(self, text=f"Navigated to position after move {target_index + 1}")
+
     def toggle_announce_mode(self):
         """
         Switches between brief and verbose announcements.
@@ -514,52 +533,31 @@ class ChessController:
         """
         Announce the last move that was played. Bound to ] key.
         """
-        move_stack = self.game.board_state.board.move_stack
+        board = self.game.board_state.board
 
-        if not move_stack:
+        if not board.move_stack:
             self.announce.send(self, text="No moves have been played yet")
             return
 
-        # Get the last move
-        last_move = move_stack[-1]
+        last_move = board.move_stack[-1]
 
-        # We need to reconstruct the board state before the last move to get proper context
-        # Create a temporary board and replay all moves except the last one
-        temp_board = chess.Board()
+        # Roll back one move in a copy to get the pre-push board — O(1) operation
+        old_board = board.copy()
+        old_board.pop()
 
-        # Replay all moves except the last to get the "before" state
-        for move in move_stack[:-1]:
-            temp_board.push(move)
-
-        # Now format the announcement with the proper context
-        self._pending_old_board = temp_board.copy()
-
-        # Apply the last move to get the "after" state
-        temp_board.push(last_move)
-
-        # Format the announcement
-        announcement = self._format_move_announcement(last_move)
-
-        # Clear the temporary old board
-        self._pending_old_board = None
-
-        # Announce with "Last move:" prefix
+        announcement = self._format_move_announcement(last_move, old_board)
         self.announce.send(self, text=f"Last move: {announcement}")
 
     # —— Internal helpers —— #
 
     def _do_move(self, src: int, dst: int):
         """
-        Wraps Game.apply_move so we can remember the old board for capture detection.
+        Wraps Game.apply_move. old_board now flows through BoardState.move_made signal (D-03).
         """
-        # stash a copy of the board *before* move
-        self._pending_old_board = self.game.board_state.board.copy()
         try:
             self.game.apply_move(src, dst)
-        except IllegalMoveError as e:
-            self.announce.send(self, text=str(e))
-            # Clear the pending board on error since no move was made
-            self._pending_old_board = None
+        except IllegalMoveError as error:
+            self.announce.send(self, text=str(error))
 
     def _emit_board_update(self):
         """Pulls a fresh copy of the chess.Board and sends it to the view."""
@@ -586,20 +584,17 @@ class ChessController:
             text = fname
         self.announce.send(self, text=text)
 
-    def _format_move_announcement(self, move: chess.Move) -> str:
+    def _format_move_announcement(
+        self, move: chess.Move, old_board: chess.Board | None
+    ) -> str:
         """
         Builds comprehensive move announcement including game state changes.
         Covers: basic moves, captures, check, checkmate, castling, en passant, promotion, etc.
+
+        old_board is the board state BEFORE the move was pushed. It arrives via the
+        BoardState.move_made signal kwarg (D-03) — never reconstructed here.
         """
         board = self.game.board_state.board
-
-        # Use pending old board if available, otherwise reconstruct from move history
-        old_board = self._pending_old_board
-        if old_board is None and board.move_stack:
-            # Create temporary board with all moves except the last one
-            old_board = chess.Board()
-            for prev_move in board.move_stack[:-1]:
-                old_board.push(prev_move)
 
         if self.announce_mode == "brief":
             return self._format_brief_announcement(move, board, old_board)
@@ -840,23 +835,17 @@ class ChessController:
         if self._computer_thinking:
             return  # Already thinking
 
-        # Capture the board state before requesting the computer move
-        # This is needed for proper move announcement (capture detection)
-        self._pre_computer_move_board = self.game.board_state.board.copy()
-
         self._computer_thinking = True
         self.computer_thinking.send(self, thinking=True)
 
         try:
             self.game.request_computer_move_async()
-        except Exception as e:
-            logger.error(f"Failed to request computer move: {e}")
+        except Exception as error:
+            logger.error(f"Failed to request computer move: {error}")
             # Signal thinking stopped even on error
             self._computer_thinking = False
             self.computer_thinking.send(self, thinking=False)
-            self.announce.send(self, text=f"Computer move failed: {e}")
-            # Clear the captured board state on error
-            self._pre_computer_move_board = None
+            self.announce.send(self, text=f"Computer move failed: {error}")
 
     def is_computer_thinking(self) -> bool:
         """Check if computer is currently thinking."""
