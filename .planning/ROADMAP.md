@@ -53,7 +53,7 @@ Phase 1: Tech Debt   ─┬──►  Phase 2a: GameSerializer ─┬─► Phas
 - [x] 01-02-PLAN.md — Engine-adapter cleanup (Wave 2): delete _simple API; extract _resolve_move_context; remove sync request_computer_move; remove player_color (TD-06, TD-07, TD-08, TD-10, TD-14)
 - [x] 01-03-PLAN.md — Bug fixes & menu hygiene (Wave 2): board.attackers() rewrite; specific menu IDs; drop \\tB accelerator; BoardState.board_ref property (TD-04, TD-05, TD-09, TD-13 perf slice, TD-14)
 - [x] 01-04-PLAN.md — Persistence paths & security hardening (Wave 2): platformdirs migration; SSL context; SHA-256 verification; ZIP path-traversal guard (TD-12, TD-13 security slice, TD-14)
-- [ ] 01-05-PLAN.md — Exception hierarchy & test-discipline finalisation (Wave 3): prune unused types; wire up EngineTimeoutError/EngineProcessError raises; produce tests/CONCERNS_TRACEABILITY.md (TD-11, TD-14)
+- [x] 01-05-PLAN.md — Exception hierarchy & test-discipline finalisation (Wave 3): prune unused types; wire up EngineTimeoutError/EngineProcessError raises; produce tests/CONCERNS_TRACEABILITY.md (TD-11, TD-14)
 
 ### Phase 2a: GameSerializer (PGN + FEN save/load)
 
