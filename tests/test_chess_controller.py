@@ -912,3 +912,42 @@ class TestPendingOldBoardRemoved:
         assert (
             "_pending_old_board" not in source
         ), "TD-03 / D-03: _pending_old_board must not be reintroduced (guardrail)"
+
+
+class TestAnnounceAttackingPieces:
+    """Verifies TD-04 / CONCERNS.md Bug #3 + Codex MEDIUM board_ref adoption."""
+
+    def test_announce_attacking_pieces_includes_pinned_attacker(self, pinned_attacker_fen):
+        """Verifies TD-04 / D-16: rook on e8 attacks white king on e1 — must be named.
+
+        Uses the canonical TD-04 fixture from Plan 01: FEN `4r3/8/8/8/8/8/8/4K3 w - - 0 1`.
+        Black rook on e8, white king on e1, white to move.
+
+        Pre-fix: legal_moves-based loop filters by from_square/to_square match. White-to-move
+        means black's rook moves are NOT in legal_moves at all — so the OLD implementation
+        returns empty for "what attacks e1?". attackers() correctly returns the rook regardless
+        of side to move.
+        """
+        game = _make_hvh_game()
+        game.board_state.load_fen(pinned_attacker_fen)
+        controller, signals = _make_controller(game)
+        signals["announce"].clear()
+
+        controller.current_square = chess.E1
+        controller.announce_attacking_pieces()
+
+        assert signals["announce"], "TD-04: announce_attacking_pieces must emit at least one announcement"
+        announcement_text = " ".join(signals["announce"]).lower()
+        assert "rook" in announcement_text, (
+            f"TD-04: pinned-attacker rook on e8 must be named. Got: {signals['announce']!r}"
+        )
+
+    def test_announce_attacking_pieces_uses_board_ref(self):
+        """Verifies TD-13 / Codex MEDIUM: the rewrite uses board_ref (read-only adoption)."""
+        from openboard.controllers.chess_controller import ChessController as _CC
+
+        method_source = inspect.getsource(_CC.announce_attacking_pieces)
+        assert "board_ref" in method_source, (
+            "TD-13 / Codex MEDIUM: announce_attacking_pieces must use BoardState.board_ref "
+            "(read-only live reference) — eliminates the snapshot copy on every query."
+        )

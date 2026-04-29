@@ -144,3 +144,38 @@ class TestBoardStateSignals:
         bs.load_fen(chess.STARTING_FEN)
         assert None in move_events
         assert len(status_events) >= 1
+
+
+class TestBoardRefProperty:
+    """Verifies TD-13 / CONCERNS.md Performance #3: BoardState.board_ref is a live read-only reference."""
+
+    def test_board_ref_returns_live_reference(self):
+        """Verifies D-18: board_ref returns self._board (no copy)."""
+        board_state = BoardState()
+        ref_one = board_state.board_ref
+        ref_two = board_state.board_ref
+        assert ref_one is board_state._board, "board_ref must return the live underlying chess.Board"
+        assert ref_two is ref_one, "board_ref must be idempotent (same object on every call)"
+
+    def test_board_property_still_returns_copy(self):
+        """Verifies D-18: BoardState.board snapshot semantics are preserved."""
+        board_state = BoardState()
+        snapshot = board_state.board
+        assert snapshot is not board_state._board, "board property must keep returning a copy"
+
+    def test_board_ref_docstring_contains_readonly_contract(self):
+        """Verifies TD-13 / Codex MEDIUM: docstring locks the read-only contract verbatim.
+
+        Without the explicit "MUST NOT mutate" wording (and reference to push/pop/set_fen),
+        the maintenance hazard Codex flagged remains. This test catches docstring drift.
+        """
+        docstring = BoardState.board_ref.__doc__ or ""
+        assert "MUST NOT mutate" in docstring, (
+            "TD-13 / Codex MEDIUM: board_ref docstring must contain the verbatim phrase "
+            "'MUST NOT mutate' to lock the read-only contract."
+        )
+        for forbidden_method in ("push", "pop", "set_fen"):
+            assert forbidden_method in docstring, (
+                f"TD-13 / Codex MEDIUM: board_ref docstring must reference `{forbidden_method}` "
+                f"in the no-mutation list."
+            )
