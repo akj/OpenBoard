@@ -27,9 +27,6 @@ from .game_dialogs import (
 
 logger = get_logger(__name__)
 
-# Get application settings
-settings = get_settings()
-
 
 class BoardPanel(wx.Panel):
     """
@@ -39,7 +36,7 @@ class BoardPanel(wx.Panel):
     def __init__(self, parent, controller: "ChessController"):
         # wx.Size expects a wx.Size object, not a tuple
         super().__init__(
-            parent, size=wx.Size(settings.ui.board_size, settings.ui.board_size)
+            parent, size=wx.Size(get_settings().ui.board_size, get_settings().ui.board_size)
         )
         self.controller: "ChessController" = controller
         self.board = controller.game.board_state.board
@@ -102,8 +99,8 @@ class BoardPanel(wx.Panel):
             for file in range(8):
                 sq = rank * 8 + file
                 x, y = (
-                    file * settings.ui.square_size,
-                    (7 - rank) * settings.ui.square_size,
+                    file * get_settings().ui.square_size,
+                    (7 - rank) * get_settings().ui.square_size,
                 )
 
                 # square color
@@ -111,14 +108,14 @@ class BoardPanel(wx.Panel):
                 color = wx.Colour(240, 240, 200) if light else wx.Colour(100, 150, 100)
                 dc.SetBrush(wx.Brush(color))
                 dc.SetPen(wx.Pen(color))
-                dc.DrawRectangle(x, y, settings.ui.square_size, settings.ui.square_size)
+                dc.DrawRectangle(x, y, get_settings().ui.square_size, get_settings().ui.square_size)
 
                 # highlight focus
                 if sq == self.focus:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 255, 0, 64)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 255, 0)))
                     dc.DrawRectangle(
-                        x, y, settings.ui.square_size, settings.ui.square_size
+                        x, y, get_settings().ui.square_size, get_settings().ui.square_size
                     )
 
                 # highlight selection
@@ -128,8 +125,8 @@ class BoardPanel(wx.Panel):
                     dc.DrawRectangle(
                         x + 2,
                         y + 2,
-                        settings.ui.square_size - 4,
-                        settings.ui.square_size - 4,
+                        get_settings().ui.square_size - 4,
+                        get_settings().ui.square_size - 4,
                     )
 
                 # highlight hint move destination
@@ -139,14 +136,14 @@ class BoardPanel(wx.Panel):
                     dc.DrawRectangle(
                         x + 2,
                         y + 2,
-                        settings.ui.square_size - 4,
-                        settings.ui.square_size - 4,
+                        get_settings().ui.square_size - 4,
+                        get_settings().ui.square_size - 4,
                     )
 
                 # draw piece
                 piece = self.board.piece_at(sq)
                 if piece:
-                    glyph = settings.ui.piece_unicode[piece.symbol()]
+                    glyph = get_settings().ui.piece_unicode[piece.symbol()]
                     dc.SetFont(
                         wx.Font(
                             32,
@@ -667,6 +664,14 @@ def main():
     # Initialize logging
     setup_logging(log_level="INFO", console_output=True)
     logger.info("Starting OpenBoard")
+
+    # Codex HIGH: migration MUST run before settings are initialized (Pitfall 3).
+    # See tests/test_views_startup_ordering.py for the regression that locks this in.
+    from ..config.migration import migrate_legacy_paths
+    migrate_legacy_paths()
+
+    # Now safe to initialize settings — they will be read from the migrated paths.
+    settings = get_settings()  # noqa: F841
 
     # load config
     try:
