@@ -2,7 +2,9 @@
 
 Codex MEDIUM: behavioral tests are primary evidence; source-grep tests are secondary
 guardrails. CI is currently Linux-only without Xvfb (RESEARCH.md Open Q1 / A4) — we
-monkeypatch wx.EvtHandler.Bind to capture (id=) arguments without instantiating wx.App.
+monkeypatch wx.EvtHandler.Bind to capture (id=) arguments.  A wx.App is created once
+per session (headless, wx.App(False)) so that wx constructors inside _build_menu_bar
+can run without a display.
 A runtime end-to-end test on each platform is documented in 01-VALIDATION.md as a manual smoke.
 """
 
@@ -11,9 +13,23 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import wx
 
 
 VIEWS_PY = Path(__file__).parent.parent / "openboard" / "views" / "views.py"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def wx_app_session():
+    """Create a headless wx.App once for the whole test session.
+
+    wx constructors (wx.MenuBar, wx.Menu, wx.MenuItem) raise wx.PyNoAppError when
+    called without a running wx.App.  wx.App(False) starts wx in headless mode —
+    no main loop is entered, no window is shown — so it is safe for unit tests.
+    """
+    app = wx.App(False)
+    yield app
+    app.Destroy()
 
 
 class TestMenuBindingHygieneBehavioral:

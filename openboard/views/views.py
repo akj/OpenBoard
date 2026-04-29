@@ -200,120 +200,13 @@ class ChessFrame(wx.Frame):
         self.keyboard_config = self._load_keyboard_config()
         self.keyboard_handler = self._create_keyboard_handler()
 
-        # create menu
-        menu_bar = wx.MenuBar()
-        file_menu = wx.Menu()
-        file_menu.Append(wx.ID_OPEN, "&Load FEN...\tCtrl-F")
-        file_menu.Append(wx.ID_ANY, "Load &PGN...\tCtrl-G")
-        file_menu.AppendSeparator()
-        file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl-Q")
-        menu_bar.Append(file_menu, "&File")
+        # Build menu bar with capture-then-bind pattern (TD-05 / D-08, TD-09 / D-17)
+        self._build_menu_bar()
 
-        # Game menu
-        game_menu = wx.Menu()
-        game_menu.Append(wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N")
-        game_menu.Append(wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M")
-        game_menu.Append(wx.ID_ANY, "New Game: Computer vs Computer\tCtrl-K")
-        game_menu.AppendSeparator()
-        game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
-        menu_bar.Append(game_menu, "&Game")
-
-        options_menu = wx.Menu()
-        options_menu.Append(wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T")
-        menu_bar.Append(options_menu, "&Options")
-
-        # Engine menu
-        engine_menu = wx.Menu()
-        engine_menu.Append(wx.ID_ANY, "&Install Stockfish...")
-        engine_menu.Append(wx.ID_ANY, "&Update Stockfish...")
-        engine_menu.AppendSeparator()
-        engine_menu.Append(wx.ID_ANY, "Check Engine &Status...")
-        menu_bar.Append(engine_menu, "&Engine")
-
-        # Opening Book menu
-        book_menu = wx.Menu()
-        book_menu.Append(wx.ID_ANY, "&Load Opening Book...\tCtrl-B")
-        book_menu.Append(wx.ID_ANY, "&Unload Opening Book")
-        book_menu.AppendSeparator()
-        book_menu.Append(wx.ID_ANY, "&Book Hint\tB")
-        book_menu.Append(wx.ID_ANY, "Check Book &Moves")
-        menu_bar.Append(book_menu, "Opening &Book")
-
-        self.SetMenuBar(menu_bar)
         self.status = self.CreateStatusBar()
 
         # board panel
         self.board_panel = BoardPanel(self, controller)
-
-        # Bind menu events
-        self.Bind(wx.EVT_MENU, self.on_load_fen, id=wx.ID_OPEN)
-        self.Bind(wx.EVT_MENU, self.on_load_pgn, id=wx.ID_ANY)
-        self.Bind(wx.EVT_MENU, lambda e: self.Close(), id=wx.ID_EXIT)
-
-        # Bind game menu events
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_new_human_vs_human,
-            id=game_menu.GetMenuItems()[0].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_new_human_vs_computer,
-            id=game_menu.GetMenuItems()[1].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_new_computer_vs_computer,
-            id=game_menu.GetMenuItems()[2].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU, self.on_difficulty_info, id=game_menu.GetMenuItems()[4].GetId()
-        )
-
-        self.Bind(
-            wx.EVT_MENU,
-            lambda e: controller.toggle_announce_mode(),
-            id=options_menu.GetMenuItems()[0].GetId(),
-        )
-
-        # Bind engine menu events
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_install_stockfish,
-            id=engine_menu.GetMenuItems()[0].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_update_stockfish,
-            id=engine_menu.GetMenuItems()[1].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_check_engine_status,
-            id=engine_menu.GetMenuItems()[3].GetId(),
-        )
-
-        # Bind opening book menu events
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_load_opening_book,
-            id=book_menu.GetMenuItems()[0].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_unload_opening_book,
-            id=book_menu.GetMenuItems()[1].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_book_hint,
-            id=book_menu.GetMenuItems()[3].GetId(),
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            self.on_check_book_moves,
-            id=book_menu.GetMenuItems()[4].GetId(),
-        )
 
         # Bind key events for navigation & commands
         self.board_panel.Bind(wx.EVT_CHAR_HOOK, self.on_key)
@@ -325,6 +218,89 @@ class ChessFrame(wx.Frame):
         controller.computer_thinking.connect(self.on_computer_thinking)
 
         self.Show()
+
+    def _build_menu_bar(self) -> None:
+        """Construct the menu bar and bind all EVT_MENU events to specific item IDs.
+
+        Each menu item is captured in a named variable so its GetId() can be passed to
+        Bind() explicitly — no wx.ID_ANY bind for EVT_MENU events (TD-05 / D-08).
+
+        The Book Hint item label omits the \\tB accelerator; the B key continues to
+        dispatch via EVT_CHAR_HOOK → KeyAction.REQUEST_BOOK_HINT (TD-09 / D-17).
+
+        Extracted into a standalone method so the test seam
+        (TestMenuBindingHygieneBehavioral) can call it on a monkeypatched instance
+        without a real wx.App.  Bind calls use wx.EvtHandler.Bind(self, ...) so that
+        patches applied to wx.EvtHandler.Bind are intercepted in tests.
+        """
+        menu_bar = wx.MenuBar()
+
+        # ── File menu ──────────────────────────────────────────────────────────────
+        file_menu = wx.Menu()
+        file_menu.Append(wx.ID_OPEN, "&Load FEN...\tCtrl-F")
+        pgn_item = file_menu.Append(wx.ID_ANY, "Load &PGN...\tCtrl-G")
+        file_menu.AppendSeparator()
+        file_menu.Append(wx.ID_EXIT, "E&xit\tCtrl-Q")
+        menu_bar.Append(file_menu, "&File")
+
+        # ── Game menu ──────────────────────────────────────────────────────────────
+        game_menu = wx.Menu()
+        human_vs_human_item = game_menu.Append(wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N")
+        human_vs_computer_item = game_menu.Append(wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M")
+        computer_vs_computer_item = game_menu.Append(wx.ID_ANY, "New Game: Computer vs Computer\tCtrl-K")
+        game_menu.AppendSeparator()
+        difficulty_info_item = game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
+        menu_bar.Append(game_menu, "&Game")
+
+        # ── Options menu ───────────────────────────────────────────────────────────
+        options_menu = wx.Menu()
+        announce_mode_item = options_menu.Append(wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T")
+        menu_bar.Append(options_menu, "&Options")
+
+        # ── Engine menu ────────────────────────────────────────────────────────────
+        engine_menu = wx.Menu()
+        install_stockfish_item = engine_menu.Append(wx.ID_ANY, "&Install Stockfish...")
+        update_stockfish_item = engine_menu.Append(wx.ID_ANY, "&Update Stockfish...")
+        engine_menu.AppendSeparator()
+        engine_status_item = engine_menu.Append(wx.ID_ANY, "Check Engine &Status...")
+        menu_bar.Append(engine_menu, "&Engine")
+
+        # ── Opening Book menu ──────────────────────────────────────────────────────
+        book_menu = wx.Menu()
+        load_book_item = book_menu.Append(wx.ID_ANY, "&Load Opening Book...\tCtrl-B")
+        unload_book_item = book_menu.Append(wx.ID_ANY, "&Unload Opening Book")
+        book_menu.AppendSeparator()
+        # TD-09 / D-17: \tB accelerator removed; B dispatches via EVT_CHAR_HOOK only.
+        book_hint_item = book_menu.Append(wx.ID_ANY, "&Book Hint")
+        check_book_item = book_menu.Append(wx.ID_ANY, "Check Book &Moves")
+        menu_bar.Append(book_menu, "Opening &Book")
+
+        self.SetMenuBar(menu_bar)
+
+        # ── Bind all EVT_MENU events to captured specific IDs (TD-05 / D-08) ──────
+        # Stock IDs (wx.ID_OPEN, wx.ID_EXIT) are legitimate — not wx.ID_ANY.
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_load_fen, id=wx.ID_OPEN)
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_load_pgn, id=pgn_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, lambda e: self.Close(), id=wx.ID_EXIT)
+
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_human_vs_human, id=human_vs_human_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_human_vs_computer, id=human_vs_computer_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_computer_vs_computer, id=computer_vs_computer_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_difficulty_info, id=difficulty_info_item.GetId())
+
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, lambda e: self.controller.toggle_announce_mode(),
+            id=announce_mode_item.GetId(),
+        )
+
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_install_stockfish, id=install_stockfish_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_update_stockfish, id=update_stockfish_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_check_engine_status, id=engine_status_item.GetId())
+
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_load_opening_book, id=load_book_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_unload_opening_book, id=unload_book_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_book_hint, id=book_hint_item.GetId())
+        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_check_book_moves, id=check_book_item.GetId())
 
     def on_load_fen(self, event):
         with wx.TextEntryDialog(self, "Enter FEN:", "Load FEN") as dlg:
