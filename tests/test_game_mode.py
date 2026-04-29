@@ -196,7 +196,7 @@ def test_game_new_game_with_config():
 
     assert game.config == config
     assert game.computer_color == chess.WHITE
-    assert game.player_color == chess.BLACK  # Backward compatibility
+    assert game.config.human_color == chess.BLACK
 
 
 def test_computer_vs_computer_config():

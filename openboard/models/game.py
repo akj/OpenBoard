@@ -136,9 +136,6 @@ class Game:
         self.board_state = BoardState()
         self._connect_board_signals()
 
-        # For backward compatibility
-        self.player_color = self.config.human_color
-
         # announce new status
         self.status_changed.send(self, status=self.board_state.game_status())
 
