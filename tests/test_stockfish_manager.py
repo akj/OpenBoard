@@ -233,5 +233,33 @@ class TestEngineDetectionWithLocalInstallation(unittest.TestCase):
                     self.assertEqual(result, "/usr/bin/stockfish")
 
 
+class TestStockfishManagerExceptionBubbleUp(unittest.TestCase):
+    """Verifies TD-11 / D-19: StockfishManager re-raises NetworkError on download failure."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temporary_install_directory = tempfile.mkdtemp()
+
+    def test_network_error_bubbles_up_from_downloader(self):
+        """Verifies D-19: a NetworkError raised by Downloader propagates to the caller."""
+        from openboard.exceptions import NetworkError
+        from openboard.engine.stockfish_manager import StockfishManager
+
+        manager = StockfishManager(Path(self.temporary_install_directory))
+
+        # Patch to satisfy platform check (install_stockfish requires Windows)
+        with patch("platform.system", return_value="Windows"):
+            # Patch get_latest_version to avoid a real network call
+            with patch.object(manager.downloader, "get_latest_version", return_value="sf_17"):
+                # Patch download_and_install_latest to raise NetworkError from Downloader
+                with patch.object(
+                    manager.downloader,
+                    "download_and_install_latest",
+                    side_effect=NetworkError("dns", "no route"),
+                ):
+                    with self.assertRaises(NetworkError):
+                        manager.install_stockfish()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,8 @@
 """Tests for the exception hierarchy."""
 
+import importlib
+import subprocess
+
 import pytest
 
 from openboard.exceptions import (
@@ -13,25 +16,19 @@ from openboard.exceptions import (
     EngineProcessError,
     GameError,
     IllegalMoveError,
-    GameStateError,
-    UIError,
-    DialogError,
-    AccessibilityError,
-    SettingsError,
     NetworkError,
     DownloadError,
 )
 
 
 def test_exception_hierarchy():
-    """Test that exception hierarchy is correctly structured."""
+    """Test that exception hierarchy is correctly structured. TD-11."""
     # Test base exception
     assert issubclass(OpenBoardError, Exception)
 
     # Test configuration errors
     assert issubclass(ConfigurationError, OpenBoardError)
     assert issubclass(GameModeError, ConfigurationError)
-    assert issubclass(SettingsError, ConfigurationError)
 
     # Test engine errors
     assert issubclass(EngineError, OpenBoardError)
@@ -43,12 +40,6 @@ def test_exception_hierarchy():
     # Test game errors
     assert issubclass(GameError, OpenBoardError)
     assert issubclass(IllegalMoveError, GameError)
-    assert issubclass(GameStateError, GameError)
-
-    # Test UI errors
-    assert issubclass(UIError, OpenBoardError)
-    assert issubclass(DialogError, UIError)
-    assert issubclass(AccessibilityError, UIError)
 
     # Test network errors
     assert issubclass(NetworkError, OpenBoardError)
@@ -151,3 +142,100 @@ def test_inheritance_chain():
     assert isinstance(move_error, GameError)
     assert isinstance(move_error, OpenBoardError)
     assert isinstance(move_error, Exception)
+
+
+class TestPrunedExceptionTypes:
+    """Verifies TD-11 / D-19: pruned types are unimportable from openboard.exceptions."""
+
+    @pytest.mark.parametrize("type_name", [
+        "AccessibilityError",
+        "DialogError",
+        "SettingsError",
+        "GameStateError",
+        "UIError",
+    ])
+    def test_pruned_exception_types_unimportable(self, type_name):
+        """Verifies TD-11 / D-19: <type_name> is removed from openboard/exceptions.py.
+
+        Re-imports the module to get a fresh namespace, then asserts the type is absent.
+        """
+        module = importlib.reload(importlib.import_module("openboard.exceptions"))
+        assert not hasattr(module, type_name), (
+            f"TD-11 / D-19: {type_name} must be removed from openboard/exceptions.py"
+        )
+
+
+class TestKeptExceptionTypes:
+    """Verifies TD-11 / D-19: wired-up types remain importable and have the expected shape."""
+
+    def test_engine_timeout_error_signature(self):
+        """Verifies TD-11 / D-19: EngineTimeoutError(operation, timeout_ms) constructor preserved."""
+        from openboard.exceptions import EngineTimeoutError
+
+        error = EngineTimeoutError("get_best_move_async", 5000)
+        assert error.operation == "get_best_move_async"
+        assert error.timeout_ms == 5000
+        assert "5000" in str(error)
+
+    def test_engine_process_error_signature(self):
+        """Verifies TD-11 / D-19: EngineProcessError(message, return_code, stderr) constructor preserved."""
+        from openboard.exceptions import EngineProcessError
+
+        error = EngineProcessError("startup failed", return_code=1, stderr="bad path")
+        assert error.return_code == 1
+        assert error.stderr == "bad path"
+
+    def test_download_error_importable(self):
+        """Verifies TD-11 / D-19: DownloadError is importable and constructible."""
+        from openboard.exceptions import DownloadError
+
+        error = DownloadError("https://example.com/x", "io failure")
+        assert "x" in str(error)
+
+    def test_network_error_importable(self):
+        """Verifies TD-11 / D-19: NetworkError is importable and constructible."""
+        from openboard.exceptions import NetworkError
+
+        error = NetworkError("dns failed", "no route")
+        assert "dns failed" in str(error)
+
+
+class TestPrunedExceptionImportsAbsentFromSource:
+    """Verifies TD-11 / Codex MEDIUM: no production file imports a pruned exception."""
+
+    @pytest.mark.parametrize("pruned_class", [
+        "AccessibilityError",
+        "DialogError",
+        "SettingsError",
+        "GameStateError",
+        "UIError",
+    ])
+    def test_pruned_exception_names_absent_from_source_tree(self, pruned_class):
+        """Verifies Codex MEDIUM grep verification: <pruned_class> is not imported anywhere.
+
+        Searches openboard/ AND tests/ for the patterns:
+        - `from openboard.exceptions import ... <pruned_class>`
+        - `openboard.exceptions.<pruned_class>`
+
+        Exclusions:
+        - tests/test_exceptions.py (this test file itself parametrizes over the names).
+        """
+        patterns = [
+            f"from openboard.exceptions import.*{pruned_class}",
+            f"openboard.exceptions.{pruned_class}",
+        ]
+        offending: list[str] = []
+        for pattern in patterns:
+            result = subprocess.run(
+                ["grep", "-rnE", pattern, "openboard/", "tests/"],
+                capture_output=True,
+                text=True,
+            )
+            for line in result.stdout.splitlines():
+                if "test_exceptions.py" in line:
+                    continue   # this test file legitimately references the names
+                offending.append(line)
+        assert offending == [], (
+            f"TD-11 / Codex MEDIUM: pruned exception `{pruned_class}` is still imported. "
+            f"Offending lines:\n" + "\n".join(offending)
+        )

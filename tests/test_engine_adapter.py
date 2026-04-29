@@ -112,3 +112,65 @@ class TestSimpleApiRemoved:
             f"TD-06 [guardrail]: `_simple` token still present in source tree:\n"
             + "\n".join(offending_lines)
         )
+
+
+class TestExceptionWiring:
+    """Verifies TD-11 / D-19: EngineAdapter raises EngineTimeoutError and EngineProcessError (STRICT)."""
+
+    def test_engine_timeout_error_raised_on_compute_timeout(self):
+        """Verifies TD-11 / D-19 (Codex MEDIUM strict): a future.result() timeout in get_best_move() surfaces as EngineTimeoutError, NOT RuntimeError."""
+        from concurrent.futures import TimeoutError as FutureTimeoutError
+        from unittest.mock import MagicMock, patch
+
+        import chess
+
+        from openboard.engine.engine_adapter import EngineAdapter
+        from openboard.exceptions import EngineTimeoutError
+
+        adapter = EngineAdapter(engine_path="/fake/stockfish")
+        # Make is_running() return True without launching a real subprocess. The three
+        # private attributes below are exactly what is_running() inspects; mocking them
+        # avoids the engine boot path.
+        adapter._engine = MagicMock()
+        adapter._loop = MagicMock()
+        adapter._loop.is_closed.return_value = False
+        adapter._shutdown_event.clear()
+
+        fake_future = MagicMock()
+        fake_future.result.side_effect = FutureTimeoutError()
+
+        with patch(
+            "openboard.engine.engine_adapter.asyncio.run_coroutine_threadsafe",
+            return_value=fake_future,
+        ):
+            # Codex MEDIUM strict: ONLY EngineTimeoutError is acceptable. No RuntimeError tolerance.
+            with pytest.raises(EngineTimeoutError):
+                adapter.get_best_move(chess.Board(), time_ms=100)
+
+    def test_engine_process_error_raised_on_startup_failure(self):
+        """Verifies TD-11 / D-19 (Codex MEDIUM strict): engine startup failure surfaces as EngineProcessError with the message substring 'startup failed'.
+
+        Codex MEDIUM: assertion verifies BOTH the specific exception type AND the message
+        substring 'startup failed' — not "any exception" tolerance.
+        """
+        from unittest.mock import patch
+
+        from openboard.engine.engine_adapter import EngineAdapter
+        from openboard.exceptions import EngineProcessError
+
+        adapter = EngineAdapter(engine_path="/fake/that/does/not/exist")
+        # Use OSError(EACCES) instead of FileNotFoundError so the existing EngineNotFoundError
+        # path does NOT intercept. The wire-up at _start_engine must raise EngineProcessError.
+        with patch(
+            "openboard.engine.engine_adapter.chess.engine.popen_uci",
+            side_effect=OSError(13, "permission denied — cannot exec engine binary"),
+        ):
+            with pytest.raises(EngineProcessError) as excinfo:
+                adapter.start()
+
+        # Codex MEDIUM specific message: the message must contain 'startup failed'.
+        error_message = str(excinfo.value).lower()
+        assert "startup failed" in error_message, (
+            f"TD-11 / D-19 / Codex MEDIUM: EngineProcessError message must contain "
+            f"'startup failed' substring. Got: {excinfo.value!r}"
+        )
