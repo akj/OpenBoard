@@ -90,3 +90,19 @@ def test_settings_platform_paths():
     # All paths should be Path objects
     for path in engine.search_paths:
         assert isinstance(path, Path)
+
+
+class TestEnginesDirViaPaths:
+    """Verifies TD-12 / D-11: EngineSettings.engines_dir routes through paths.engines_dir()."""
+
+    def test_engines_dir_resolves_via_paths(self, isolated_profile: Path) -> None:
+        """Verifies D-11: a fresh EngineSettings yields paths.engines_dir() — no Path.cwd() leak."""
+        from openboard.config import paths
+        from openboard.config.settings import EngineSettings
+
+        settings = EngineSettings()
+        assert settings.engines_dir == paths.engines_dir(), (
+            f"TD-12 / D-11: engines_dir must equal paths.engines_dir(); got {settings.engines_dir}"
+        )
+        # Sanity: should be under the isolated profile, NOT the cwd
+        assert isolated_profile in settings.engines_dir.parents

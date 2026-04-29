@@ -5,6 +5,8 @@ test modules. Adding fixtures here propagates them to all test files without
 duplication.
 """
 
+from pathlib import Path
+
 import pytest
 
 
@@ -63,3 +65,15 @@ def quiet_check_fen() -> str:
     does NOT deliver check after Qh5. This corrected FEN is used instead.
     """
     return "4k3/8/8/8/8/8/PPPP1PPP/RNBQKBNR w KQ - 0 1"
+
+
+@pytest.fixture
+def isolated_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect platformdirs lookups to an isolated tmp_path via OPENBOARD_PROFILE_DIR.
+
+    Used by every Plan-04 test that touches paths.py, migration.py, or settings.py.
+    monkeypatch auto-cleans the env var so tests do not leak across the session.
+    (RESEARCH.md Pitfall 6 / D-09)
+    """
+    monkeypatch.setenv("OPENBOARD_PROFILE_DIR", str(tmp_path))
+    return tmp_path

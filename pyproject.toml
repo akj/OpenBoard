@@ -8,6 +8,7 @@ dependencies = [
     "accessible-output3",
     "blinker>=1.9.0",
     "chess>=1.11.2",
+    "platformdirs>=4.3.8",
     "pydantic>=2.13.3",
     "wxpython>=4.2.4",
 ]
