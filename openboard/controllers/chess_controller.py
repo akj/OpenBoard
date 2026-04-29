@@ -478,54 +478,42 @@ class ChessController:
 
         self.announce.send(self, text=announcement)
 
-    def announce_attacking_pieces(self):
-        """
-        Announce all pieces that are attacking the currently focused square.
-        Uses current announce_mode (brief/verbose) setting.
+    def announce_attacking_pieces(self) -> None:
+        """Announce all pieces attacking the currently focused square.
+
+        Uses chess.Board.attackers(color, square) — pseudo-attackers including pinned
+        pieces, which is the correct semantic for "what attacks this square?".
+        Reads via board_ref (read-only) to avoid the per-call snapshot cost.
+        (TD-04 / D-16 / TD-13 / D-18 / CONCERNS.md Bug #3 + Performance #2 + Performance #3)
         """
         if self.current_square is None:
-            self.announce.send(
-                self, text="No square focused. Navigate to a square first"
-            )
+            self.announce.send(self, text="No square focused. Navigate to a square first")
             return
 
-        board = self.game.board_state.board
+        # Read-only access: board_ref skips the .board copy on every call (Codex MEDIUM adoption).
+        board = self.game.board_state.board_ref
         square_name = chess.square_name(self.current_square)
 
-        # Find all pieces attacking the focused square
-        attacking_pieces = []
+        # Single bitboard union: O(1) per color, two colors.
+        attackers_squareset = (
+            board.attackers(chess.WHITE, self.current_square)
+            | board.attackers(chess.BLACK, self.current_square)
+        )
 
-        # Check all squares on the board for pieces that attack the focused square
-        for attacking_square in range(64):
+        attacking_pieces: list[tuple[int, chess.Piece]] = []
+        for attacking_square in attackers_squareset:
             piece = board.piece_at(attacking_square)
-            if piece is None:
-                continue
-
-            # Get all legal moves from this piece
-            piece_moves = [
-                move
-                for move in board.legal_moves
-                if move.from_square == attacking_square
-                and move.to_square == self.current_square
-            ]
-
-            # If this piece can move to the focused square, it's attacking it
-            if piece_moves:
+            if piece is not None:
                 attacking_pieces.append((attacking_square, piece))
 
         if not attacking_pieces:
             self.announce.send(self, text=f"No pieces are attacking {square_name}")
             return
 
-        # Format announcement based on mode
         if self.announce_mode == "brief":
-            announcement = self._format_brief_attacking_pieces(
-                attacking_pieces, square_name
-            )
+            announcement = self._format_brief_attacking_pieces(attacking_pieces, square_name)
         else:
-            announcement = self._format_verbose_attacking_pieces(
-                attacking_pieces, square_name
-            )
+            announcement = self._format_verbose_attacking_pieces(attacking_pieces, square_name)
 
         self.announce.send(self, text=announcement)
 

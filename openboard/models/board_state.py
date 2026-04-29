@@ -35,6 +35,19 @@ class BoardState:
         """
         return self._board.copy()
 
+    @property
+    def board_ref(self) -> chess.Board:
+        """Returns the live `chess.Board` for read-only access by controller/view layers.
+
+        Callers MUST NOT mutate (no `push`, `pop`, `set_fen`, etc.).
+        Use `board` (snapshot copy) when mutation is possible.
+
+        Performance: avoids the 64-square Board.copy() per access. Use cases include
+        paint loops, navigation handlers, and read-only attacker queries.
+        (TD-13 / D-18 / CONCERNS.md Performance #3)
+        """
+        return self._board
+
     def load_fen(self, fen: str):
         """
         Replace the position with the one given by FEN.
