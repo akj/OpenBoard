@@ -230,3 +230,30 @@ class TestMoveUndoneForwarder:
         game.apply_move(chess.E2, chess.E4)
         game.board_state.undo_move()
         assert len(undo_events) == 2, "post-new_game undo must fire — TD-01 regression"
+
+
+class TestPlayerColorRemoved:
+    """Verifies TD-10 / CONCERNS.md "player_color backward-compatibility attribute": removed entirely."""
+
+    def test_player_color_removed(self):
+        """Verifies TD-10 / D-15: Game has no player_color attribute (read from config.human_color instead)."""
+        from openboard.models.game_mode import GameConfig, GameMode
+
+        game = Game(config=GameConfig(mode=GameMode.HUMAN_VS_HUMAN))
+        assert not hasattr(game, "player_color"), (
+            "TD-10: Game.player_color must be removed; consumers should read game.config.human_color"
+        )
+        # Also verify the supported alternative still works
+        assert game.config.human_color is not None
+
+
+class TestSyncRequestComputerMoveRemoved:
+    """Verifies TD-08 / CONCERNS.md "request_computer_move synchronous path is dead in production"."""
+
+    def test_request_computer_move_sync_removed(self):
+        """Verifies TD-08 / D-13: synchronous Game.request_computer_move() is deleted."""
+        assert not hasattr(Game, "request_computer_move"), (
+            "TD-08: sync request_computer_move() must be removed; tests use request_computer_move_async()"
+        )
+        # Async path must still exist
+        assert hasattr(Game, "request_computer_move_async")

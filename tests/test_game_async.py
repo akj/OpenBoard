@@ -240,3 +240,108 @@ class TestGameRequestComputerMoveAsync:
         assert len(old_board_events) == 1
         assert old_board_events[0] is not None
         assert isinstance(old_board_events[0], chess.Board)
+
+
+import inspect
+from typing import NamedTuple
+
+
+class TestResolveMoveContextExtracted:
+    """Verifies TD-07 / CONCERNS.md "Duplicate difficulty-resolution logic": helper exists with NamedTuple shape."""
+
+    def _make_hvc_game(self, difficulty=DifficultyLevel.BEGINNER):
+        engine = _make_mock_engine(move_uci="e7e5")
+        config = GameConfig(
+            mode=GameMode.HUMAN_VS_COMPUTER,
+            human_color=chess.WHITE,
+            difficulty=difficulty,
+        )
+        return Game(engine_adapter=engine, config=config)
+
+    def test_resolve_move_context_extracted(self):
+        """Verifies TD-07 / D-14: Game._resolve_move_context() exists and returns a NamedTuple.
+
+        Per Codex MEDIUM: the helper returns typing.NamedTuple, NOT a @dataclass.
+        Three named fields: difficulty_config, fen_before, book_move.
+        """
+        assert hasattr(Game, "_resolve_move_context"), (
+            "TD-07: Game._resolve_move_context() helper must be extracted from the duplicate preambles"
+        )
+        game = self._make_hvc_game()
+        context = game._resolve_move_context()
+
+        # Codex MEDIUM: NamedTuple, not dataclass.
+        assert isinstance(context, tuple), (
+            "TD-07 / Codex MEDIUM: _resolve_move_context must return a NamedTuple (subclass of tuple)"
+        )
+        assert hasattr(type(context), "_fields"), (
+            "TD-07 / Codex MEDIUM: return type must be a typing.NamedTuple (has _fields)"
+        )
+        assert set(type(context)._fields) == {"difficulty_config", "fen_before", "book_move"}, (
+            f"TD-07: NamedTuple fields must be exactly (difficulty_config, fen_before, book_move); "
+            f"got {type(context)._fields}"
+        )
+
+        # Tuple-unpacking should also work
+        difficulty_config, fen_before, book_move = context
+        assert difficulty_config is not None
+        assert isinstance(fen_before, str)
+        assert len(fen_before.split(" ")) >= 4   # FEN sanity
+
+    def test_resolve_move_context_is_pure(self):
+        """Verifies TD-07 / Codex MEDIUM: _resolve_move_context has NO side effects.
+
+        Source-introspection guardrail. The helper must not call .send() on signals,
+        must not marshal to wx thread, must not push moves, must not invoke engine
+        callbacks. Validation + lookup + FEN snapshot + optional book lookup ONLY.
+        """
+        source = inspect.getsource(Game._resolve_move_context)
+
+        # Forbidden patterns — each represents a side-effect category
+        forbidden_patterns = [
+            (".send(", "must not emit blinker signals"),
+            ("wx.CallAfter", "must not marshal to wx main thread"),
+            ("make_move(", "must not push moves through BoardState"),
+            ("get_best_move_async", "must not invoke engine async path"),
+            ("get_best_move(", "must not invoke engine sync path"),
+            ("board_state._board.push", "must not push directly to underlying board"),
+        ]
+        for pattern, why in forbidden_patterns:
+            assert pattern not in source, (
+                f"TD-07 / Codex MEDIUM: _resolve_move_context {why}; "
+                f"found `{pattern}` in source"
+            )
+
+
+class TestRequestComputerMoveEngineOptional:
+    """Verifies engine-optional behavior (Codex MEDIUM): no engine + no book → typed engine error."""
+
+    def test_request_computer_move_async_raises_when_no_engine_and_no_book(self):
+        """Verifies Codex MEDIUM: engine_adapter=None and no book hit must raise EngineError, not AttributeError.
+
+        Phase 1 contract: the app starts and runs without an engine. When the user explicitly
+        requests a computer move and there is no engine AND no book move, the call must surface
+        a typed EngineError so the controller can announce it accessibly. Silent no-op is forbidden
+        (the user would not hear feedback). AttributeError is forbidden (it is not the documented
+        failure mode and leaks implementation detail).
+        """
+        from openboard.exceptions import EngineError
+        from openboard.models.game import Game
+        from openboard.models.game_mode import GameConfig, GameMode
+
+        # HvC mode is required for request_computer_move_async to make sense.
+        from openboard.models.game_mode import DifficultyLevel
+
+        game = Game(
+            config=GameConfig(
+                mode=GameMode.HUMAN_VS_COMPUTER,
+                human_color=chess.WHITE,
+                difficulty=DifficultyLevel.BEGINNER,
+            ),
+            engine_adapter=None,
+        )
+        # Ensure no opening book is configured.
+        game.opening_book = None
+
+        with pytest.raises(EngineError):
+            game.request_computer_move_async()

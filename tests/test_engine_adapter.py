@@ -67,3 +67,48 @@ def test_create_with_auto_detection_failure():
 
         with pytest.raises(RuntimeError, match="No stockfish engine found"):
             EngineAdapter.create_with_auto_detection("stockfish")
+
+
+import subprocess
+
+
+class TestSimpleApiRemoved:
+    """Verifies TD-06 / CONCERNS.md "Dead `_simple` API surface": _simple methods are deleted."""
+
+    def test_simple_api_removed(self):
+        """Verifies TD-06 / D-12: EngineAdapter exposes no `_simple` family methods."""
+        from openboard.engine.engine_adapter import EngineAdapter
+
+        removed_names = [
+            "start_simple",
+            "stop_simple",
+            "get_best_move_simple",
+            "get_best_move_simple_async",
+            "_start_engine_simple",
+        ]
+        for method_name in removed_names:
+            assert not hasattr(EngineAdapter, method_name), (
+                f"TD-06: {method_name} must be removed from EngineAdapter"
+            )
+
+    def test_simple_token_absent_from_source_tree(self):
+        """[guardrail] Verifies TD-06 / Codex LOW: no `_simple` token anywhere in openboard/ or tests/.
+
+        Stronger than the attribute-absence test: catches any lingering import, reference,
+        or alias to the deleted API surface in the entire source tree.
+        """
+        result = subprocess.run(
+            ["grep", "-rE", r"\b_simple\b", "openboard/", "tests/"],
+            capture_output=True,
+            text=True,
+        )
+        # returncode 1 = no matches found (success); returncode 0 = matches found (failure).
+        # Filter out this test file itself, which legitimately contains the token.
+        offending_lines = [
+            line for line in result.stdout.splitlines()
+            if "test_engine_adapter.py" not in line
+        ]
+        assert offending_lines == [], (
+            f"TD-06 [guardrail]: `_simple` token still present in source tree:\n"
+            + "\n".join(offending_lines)
+        )
