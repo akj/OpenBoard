@@ -4,6 +4,8 @@ import platform
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .paths import engines_dir as _engines_dir_factory
+
 
 @dataclass
 class UISettings:
@@ -41,7 +43,7 @@ class UISettings:
 class EngineSettings:
     """Engine configuration settings."""
 
-    engines_dir: Path = field(default_factory=lambda: Path.cwd() / "engines")
+    engines_dir: Path = field(default_factory=_engines_dir_factory)
     default_timeout_ms: int = 30000
     search_paths: list[Path] = field(default_factory=list)
 

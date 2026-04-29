@@ -45,11 +45,14 @@ def test_ui_settings_validation():
 
 def test_engine_settings_default():
     """Test EngineSettings with default values."""
+    from openboard.config import paths
+
     engine = EngineSettings()
 
     assert engine.default_timeout_ms == 30000
-    assert engine.engines_dir == Path.cwd() / "engines"
-    assert engine.stockfish_dir == Path.cwd() / "engines" / "stockfish" / "bin"
+    # TD-12 / D-11: engines_dir now resolves via paths.engines_dir(), not Path.cwd().
+    assert engine.engines_dir == paths.engines_dir()
+    assert engine.stockfish_dir == paths.engines_dir() / "stockfish" / "bin"
     assert len(engine.search_paths) > 0
 
 
