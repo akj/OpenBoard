@@ -290,7 +290,7 @@ requires-dist = [
     { name = "accessible-output3", git = "https://github.com/SigmaNight/accessible_output3" },
     { name = "blinker", specifier = ">=1.9.0" },
     { name = "chess", specifier = ">=1.11.2" },
-    { name = "platformdirs", specifier = ">=4.3.8" },
+    { name = "platformdirs", specifier = ">=4.9.6" },
     { name = "pydantic", specifier = ">=2.13.3" },
     { name = "wxpython", marker = "sys_platform != 'linux'", specifier = ">=4.2.4" },
     { name = "wxpython", marker = "sys_platform == 'linux'", specifier = ">=4.2.4", index = "https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04/" },
