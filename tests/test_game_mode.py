@@ -155,6 +155,7 @@ def test_game_request_computer_move_no_engine():
         difficulty=DifficultyLevel.BEGINNER,
     )
     game = Game(config=config)  # No engine
+    game.make_move(chess.Move.from_uci("e2e4"))
 
     with pytest.raises(EngineError, match="No chess engine available"):
         game.request_computer_move_async()

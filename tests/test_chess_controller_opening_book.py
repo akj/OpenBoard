@@ -125,7 +125,7 @@ class TestChessControllerOpeningBookIntegration:
             difficulty=DifficultyLevel.INTERMEDIATE,
         )
         game = Game(engine_adapter=self.mock_engine, config=config)
-        controller = ChessController(game, config={"announce_mode": "verbose"})
+        controller = ChessController(game)
 
         announcements = []
 
@@ -167,7 +167,9 @@ class TestChessControllerOpeningBookIntegration:
 
         # Test the capture move
         capture_move = game.board_state.board.move_stack[-1]
-        capture_msg = controller._format_move_announcement(capture_move, old_board_before_capture)
+        capture_msg = controller._format_move_announcement(
+            capture_move, old_board_before_capture
+        )
 
         # Verify capture IS announced correctly
         has_takes = "takes" in capture_msg.lower() or "captures" in capture_msg.lower()

@@ -19,7 +19,7 @@ def setup_logging(
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Optional log file path. If None, creates openboard.log in user's home
+        log_file: Optional log file path. Defaults to openboard.log in the user state directory.
         console_output: Whether to output logs to console
     """
     # Convert string level to logging constant
@@ -36,7 +36,9 @@ def setup_logging(
     root_logger.setLevel(numeric_level)
 
     # Clear any existing handlers
-    root_logger.handlers.clear()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        handler.close()
 
     # Console handler
     if console_output:
@@ -47,7 +49,9 @@ def setup_logging(
 
     # File handler
     if log_file is None:
-        log_file = str(Path.home() / "openboard.log")
+        from .config.paths import user_state_dir
+
+        log_file = str(user_state_dir() / "openboard.log")
 
     try:
         # Create directory if it doesn't exist

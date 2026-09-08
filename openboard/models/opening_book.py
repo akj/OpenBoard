@@ -69,18 +69,17 @@ class OpeningBook:
             logger.error(error_msg)
             raise OpeningBookError(error_msg)
 
-        # Close existing reader if any
-        self._close_reader()
-
-        # Try to open the polyglot book
         try:
-            self._reader = chess.polyglot.MemoryMappedReader(str(book_path))
-            self._book_file_path = book_path
-            logger.info(f"Opening book loaded: {book_path}")
+            reader = chess.polyglot.MemoryMappedReader(str(book_path))
         except Exception as e:
             error_msg = f"Failed to load opening book: {book_path} - {e}"
             logger.error(error_msg)
             raise OpeningBookError(error_msg) from e
+
+        self._close_reader()
+        self._reader = reader
+        self._book_file_path = book_path
+        logger.info("Opening book loaded: %s", book_path)
 
     def close(self) -> None:
         """
@@ -91,7 +90,7 @@ class OpeningBook:
 
     def _close_reader(self) -> None:
         """Internal method to close the book reader."""
-        if self._reader:
+        if self._reader is not None:
             try:
                 self._reader.close()
             except Exception as e:
@@ -118,31 +117,26 @@ class OpeningBook:
         Raises:
             OpeningBookError: If an error occurs during lookup
         """
-        if not self._reader:
+        if self._reader is None:
             logger.debug("No opening book loaded")
             return None
 
         try:
-            # Get all entries and find the highest-weighted one
-            entries = list(
+            entry = max(
                 self._reader.find_all(
                     board,
                     minimum_weight=minimum_weight,
-                )
+                ),
+                key=lambda entry: entry.weight,
+                default=None,
             )
 
-            if not entries:
-                logger.debug(f"No book moves found for position {board.fen()}")
+            if entry is None:
+                logger.debug("No book moves found")
                 return None
 
-            # Sort by weight (descending) and take the highest
-            entries.sort(key=lambda e: e.weight, reverse=True)
-            move = entries[0].move
-
-            logger.debug(
-                f"Book move found for {board.fen()}: {move} (weight: {entries[0].weight})"
-            )
-            return move
+            logger.debug("Book move found: %s (weight: %s)", entry.move, entry.weight)
+            return entry.move
 
         except Exception as e:
             error_msg = f"Error getting book move: {e}"

@@ -1,411 +1,174 @@
-#!/usr/bin/env python3
-"""
-Tests for the build validation framework.
+"""Startup validation must exercise the application and reject broken builds."""
 
-This module provides comprehensive tests for the build validation system,
-ensuring that the validation framework itself works correctly across
-different platforms and scenarios.
-"""
-
+import importlib.util
+import json
+import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add the parent directories to the path so we can import our modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-# Import from .build directory (with dot prefix it needs special handling)
-import importlib.util
-
-spec = importlib.util.spec_from_file_location(
-    "verify_build",
-    Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py",
-)
-if spec is None or spec.loader is None:
-    raise ImportError("Could not load verify_build module")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+VALIDATOR_PATH = PROJECT_ROOT / ".build" / "validation" / "verify_build.py"
+spec = importlib.util.spec_from_file_location("verify_build", VALIDATOR_PATH)
+assert spec is not None and spec.loader is not None
 verify_build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_build)
-BuildValidator = verify_build.BuildValidator
-ValidationError = verify_build.ValidationError
 
 
-class TestBuildValidator:
-    """Test the BuildValidator class functionality."""
+def test_source_startup_smoke_check():
+    report = verify_build.validate_startup(project_root=PROJECT_ROOT)
+    assert report["status"] == "ok"
+    assert report["legal_moves"] == 20
+    assert report["move"] == "e2e4"
 
-    def setup_method(self):
-        """Set up test fixtures before each test method."""
-        self.test_project_root = Path(__file__).parent.parent.parent
-        self.validator = BuildValidator(project_root=self.test_project_root)
 
-    def test_validator_initialization(self):
-        """Test that the validator initializes correctly."""
-        assert self.validator.project_root == self.test_project_root
-        assert self.validator.system in ["Linux", "Windows", "Darwin"]
-        assert isinstance(self.validator.results, dict)
+def test_source_check_from_another_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert verify_build.validate_startup(project_root=PROJECT_ROOT)["status"] == "ok"
 
-    def test_add_result(self):
-        """Test the _add_result method."""
-        test_name = "test_validation"
-        self.validator._add_result(
-            test_name=test_name,
-            passed=True,
-            message="Test passed",
-            duration=0.5,
-            details={"extra": "info"},
+
+def test_missing_executable_fails(tmp_path):
+    with pytest.raises(verify_build.ValidationError, match="Executable not found"):
+        verify_build.validate_startup(tmp_path / "missing")
+
+
+@pytest.mark.parametrize("stdout", ["", "not JSON", "{}", "[]", '{"status": "ok"}'])
+def test_exit_zero_without_smoke_result_fails(stdout):
+    result = subprocess.CompletedProcess([], 0, stdout, "")
+    with patch.object(verify_build.subprocess, "run", return_value=result):
+        with pytest.raises(verify_build.ValidationError):
+            verify_build.validate_startup()
+
+
+def test_nonzero_exit_fails_with_stderr():
+    result = subprocess.CompletedProcess([], 1, "", "Missing bundled dependency")
+    with patch.object(verify_build.subprocess, "run", return_value=result):
+        with pytest.raises(
+            verify_build.ValidationError, match="Missing bundled dependency"
+        ):
+            verify_build.validate_startup()
+
+
+def test_timeout_fails():
+    with patch.object(
+        verify_build.subprocess,
+        "run",
+        side_effect=subprocess.TimeoutExpired("OpenBoard", 1),
+    ):
+        with pytest.raises(verify_build.ValidationError, match="could not finish"):
+            verify_build.validate_startup(timeout=1)
+
+
+def test_packaged_check_uses_isolated_profile_and_working_directory(
+    tmp_path, monkeypatch
+):
+    executable = tmp_path / "OpenBoard.exe"
+    executable.touch()
+    monkeypatch.setenv("PYTHONPATH", str(PROJECT_ROOT))
+    original_profile = os.environ["OPENBOARD_PROFILE_DIR"]
+    observed_profile = None
+
+    def run(command, **kwargs):
+        nonlocal observed_profile
+        observed_profile = Path(kwargs["env"]["OPENBOARD_PROFILE_DIR"])
+        assert observed_profile.is_dir()
+        assert str(observed_profile) != original_profile
+        assert kwargs["cwd"] == str(observed_profile)
+        assert "PYTHONPATH" not in kwargs["env"]
+        assert command == [str(executable.resolve()), "--self-test"]
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps({"check": "startup", "status": "ok"}), ""
         )
 
-        assert test_name in self.validator.results
-        result = self.validator.results[test_name]
-        assert result["passed"] is True
-        assert result["message"] == "Test passed"
-        assert result["duration"] == 0.5
-        assert result["details"]["extra"] == "info"
-
-    def test_run_subprocess_test_success(self):
-        """Test _run_subprocess_test with a successful command."""
-        success, message, details = self.validator._run_subprocess_test(
-            command=["python", "-c", "print('test')"],
-            test_name="test_command",
-            timeout=5,
-        )
-
-        assert success is True
-        assert "test_command completed successfully" in message
-        assert details["returncode"] == 0
-        assert "test" in details["stdout"]
-
-    def test_run_subprocess_test_failure(self):
-        """Test _run_subprocess_test with a failing command."""
-        success, message, details = self.validator._run_subprocess_test(
-            command=["python", "-c", "import sys; sys.exit(1)"],
-            test_name="test_failing_command",
-            timeout=5,
-        )
-
-        assert success is False
-        assert "failed with exit code 1" in message
-        assert details["returncode"] == 1
-
-    def test_run_subprocess_test_not_found(self):
-        """Test _run_subprocess_test with a command that doesn't exist."""
-        success, message, details = self.validator._run_subprocess_test(
-            command=["nonexistent_command_12345"],
-            test_name="test_missing_command",
-            timeout=5,
-        )
-
-        assert success is False
-        assert "command not found" in message
-
-    def test_validate_dependencies(self):
-        """Test the validate_dependencies method."""
-        self.validator.validate_dependencies()
-
-        assert "dependencies" in self.validator.results
-        result = self.validator.results["dependencies"]
-
-        # Tests run in a properly configured environment where all required
-        # packages are installed; unconditional assertions enforce this. (ref: DL-001)
-        assert result["passed"] is True
-        assert "required dependencies are available" in result["message"]
-        assert "details" in result
-        assert "chess" in result["details"]
-
-    def test_validate_package_imports(self):
-        """Test the validate_package_imports method."""
-        self.validator.validate_package_imports()
-
-        assert "package_imports" in self.validator.results
-        result = self.validator.results["package_imports"]
-
-        # Same rationale: unconditional assertions in a configured test env.
-        assert result["passed"] is True
-        assert "Successfully imported" in result["message"]
-        assert "details" in result
-
-    def test_validate_accessibility_modules(self):
-        """Test the validate_accessibility_modules method."""
-        self.validator.validate_accessibility_modules()
-
-        assert "accessibility_modules" in self.validator.results
-        result = self.validator.results["accessibility_modules"]
-
-        assert "passed" in result
-        assert "message" in result
-
-        # Should contain information about available outputs
-        if result["passed"]:
-            assert "available_outputs" in result["details"]
-
-    def test_validate_chess_engine_detection(self):
-        """Test the validate_chess_engine_detection method."""
-        self.validator.validate_chess_engine_detection()
-
-        assert "engine_detection" in self.validator.results
-        result = self.validator.results["engine_detection"]
-
-        assert "passed" in result
-        assert "message" in result
-        assert "details" in result
-
-        # Check that engine detection details are present
-        details = result["details"]
-        assert "stockfish_path" in details
-        assert "engines_found" in details
-        assert "engine_names" in details
-
-    def test_validate_game_logic(self):
-        """Test the validate_game_logic method."""
-        self.validator.validate_game_logic()
-
-        assert "game_logic" in self.validator.results
-        result = self.validator.results["game_logic"]
-
-        assert result["passed"] is True
-        assert "message" in result
-        assert "details" in result
-        details = result["details"]
-        assert details["initial_legal_moves"] == 20
-        assert details["move_made_correctly"] is True
-        assert details["game_config_valid"] is True
-
-    def test_validate_signal_system(self):
-        """Test the validate_signal_system method."""
-        self.validator.validate_signal_system()
-
-        assert "signal_system" in self.validator.results
-        result = self.validator.results["signal_system"]
-
-        assert result["passed"] is True
-        assert "message" in result
-        assert "details" in result
-        details = result["details"]
-        assert details["basic_signal_received"] is True
-        assert details["board_signals_working"] is True
-
-    def test_performance_baseline(self):
-        """Test the performance_baseline method."""
-        self.validator.performance_baseline()
-
-        assert "performance_baseline" in self.validator.results
-        result = self.validator.results["performance_baseline"]
-
-        assert "passed" in result
-        assert "message" in result
-        assert "details" in result
-
-        details = result["details"]
-        assert result["passed"] is True
-        assert "benchmarks" in details
-        benchmarks = details["benchmarks"]
-        for metric in ["import_time", "game_init_time", "move_generation_time"]:
-            assert metric in benchmarks
-            assert isinstance(benchmarks[metric], (int, float))
-            assert benchmarks[metric] >= 0
-
-    def test_validate_executable_functionality_no_executable(self):
-        """Test validate_executable_functionality with no executable provided."""
-        validator = BuildValidator(executable_path=None)
-        validator.validate_executable_functionality()
-
-        assert "executable_functionality" in validator.results
-        result = validator.results["executable_functionality"]
-        assert result["passed"] is False
-        assert "No executable path provided" in result["message"]
-
-    def test_validate_executable_functionality_nonexistent_executable(self):
-        """Test validate_executable_functionality with a nonexistent executable."""
-        fake_executable = Path("/nonexistent/fake/executable")
-        validator = BuildValidator(executable_path=fake_executable)
-        validator.validate_executable_functionality()
-
-        assert "executable_functionality" in validator.results
-        result = validator.results["executable_functionality"]
-        assert result["passed"] is False
-        assert "executable not found" in result["message"]
-
-    def test_run_all_validations(self):
-        """Test that run_all_validations executes all validation methods."""
-        results = self.validator.run_all_validations()
-
-        # Check that all expected validation tests were run
-        expected_tests = [
-            "dependencies",
-            "package_imports",
-            "accessibility_modules",
-            "engine_detection",
-            "game_logic",
-            "signal_system",
-            "performance_baseline",
-        ]
-
-        for test_name in expected_tests:
-            assert test_name in results
-            assert "passed" in results[test_name]
-            assert "message" in results[test_name]
-
-    def test_print_results(self):
-        """Test the print_results method."""
-        # Add some test results
-        self.validator._add_result("test_pass", True, "Test passed", 0.1)
-        self.validator._add_result("test_fail", False, "Test failed", 0.2)
-
-        # Capture the result
-        all_passed = self.validator.print_results()
-
-        # Should return False since we have a failing test
-        assert all_passed is False
-
-        # Test with all passing results
-        validator2 = BuildValidator()
-        validator2._add_result("test_pass1", True, "Test 1 passed", 0.1)
-        validator2._add_result("test_pass2", True, "Test 2 passed", 0.2)
-
-        all_passed = validator2.print_results()
-        assert all_passed is True
-
-
-class TestBuildValidationIntegration:
-    """Integration tests for the build validation system."""
-
-    def test_validation_script_execution(self):
-        """Test that the validation script can be executed."""
-        validation_script = (
-            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
-        )
-        assert validation_script.exists(), "Validation script should exist"
-
-        # Test that the script can be imported and run
-        result = subprocess.run(
-            [sys.executable, str(validation_script), "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "Validate OpenBoard build functionality" in result.stdout
-
-    def test_validation_with_verbose_flag(self):
-        """Test validation script with verbose flag."""
-        validation_script = (
-            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
-        )
-
-        # Run a quick validation with verbose flag
-        result = subprocess.run(
-            [sys.executable, str(validation_script), "--verbose"],
-            capture_output=True,
-            text=True,
-            timeout=60,  # Allow more time for full validation
-        )
-
-        # Should complete (pass or fail) but not crash
-        assert result.returncode in [0, 1]  # 0 for success, 1 for validation failures
-        assert "Starting comprehensive build validation" in result.stdout
-
-    def test_validation_project_root_parameter(self):
-        """Test validation script with custom project root."""
-        validation_script = (
-            Path(__file__).parent.parent / ".build" / "validation" / "verify_build.py"
-        )
-        project_root = Path(__file__).parent.parent
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(validation_script),
-                "--project-root",
-                str(project_root),
-                "--verbose",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        # Should complete without crashing
-        assert result.returncode in [0, 1]
-
-
-class TestBuildValidationError:
-    """Test the ValidationError exception."""
-
-    def test_validation_error_creation(self):
-        """Test that ValidationError can be created and raised."""
-        error_message = "Test validation error"
-
-        with pytest.raises(ValidationError) as exc_info:
-            raise ValidationError(error_message)
-
-        assert str(exc_info.value) == error_message
-
-
-class TestBuildValidationMocking:
-    """Test build validation with mocked dependencies."""
-
-    def test_validate_dependencies_with_missing_imports(self):
-        """Test dependency validation when imports fail."""
-        validator = BuildValidator()
-
-        # Mock importlib.import_module to simulate missing dependencies
-        with patch("importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("Module not found")
-
-            validator.validate_dependencies()
-
-            result = validator.results["dependencies"]
-            assert result["passed"] is False
-            assert "Missing or broken dependencies" in result["message"]
-
-    def test_validate_package_imports_with_failures(self):
-        """Test package import validation with some failures."""
-        validator = BuildValidator()
-
-        # Mock importlib.import_module to simulate some import failures
-        def mock_import_side_effect(module_name):
-            if "engine" in module_name:
-                raise ImportError(f"Cannot import {module_name}")
-            return MagicMock()
-
-        with patch("importlib.import_module", side_effect=mock_import_side_effect):
-            validator.validate_package_imports()
-
-            result = validator.results["package_imports"]
-            assert result["passed"] is False
-            assert "Failed to import" in result["message"]
-
-    def test_performance_baseline_with_slow_operations(self):
-        """Test performance baseline with artificially slow operations."""
-        validator = BuildValidator()
-
-        # Mock time.time to simulate slow operations
-        original_time = time.time
-        call_count = 0
-
-        def mock_time():
-            nonlocal call_count
-            call_count += 1
-            # Make every other call return a time 2 seconds later
-            if call_count % 2 == 0:
-                return original_time() + 2.0
-            return original_time()
-
-        with patch("time.time", side_effect=mock_time):
-            with patch(
-                "openboard.models.game.Game"
-            ):  # Mock to avoid actual slow operations
-                validator.performance_baseline()
-
-                result = validator.results["performance_baseline"]
-                # The test might pass or fail depending on the mocked timings
-                assert "passed" in result
-
-
-if __name__ == "__main__":
-    # Allow running this test file directly
-    pytest.main([__file__, "-v"])
+    with patch.object(verify_build.subprocess, "run", side_effect=run):
+        verify_build.validate_startup(executable)
+    assert observed_profile is not None and not observed_profile.exists()
+    assert os.environ["OPENBOARD_PROFILE_DIR"] == original_profile
+
+
+def test_validator_cli_checks_source():
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR_PATH), "--verbose"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Startup smoke check passed" in result.stdout
+
+
+@pytest.fixture
+def build_scripts(monkeypatch):
+    monkeypatch.syspath_prepend(str(PROJECT_ROOT / ".build"))
+    monkeypatch.syspath_prepend(str(PROJECT_ROOT / ".build" / "installers" / "scripts"))
+    modules = []
+    for name, path in (
+        ("build_openboard", PROJECT_ROOT / ".build" / "scripts" / "build.py"),
+        (
+            "build_installers",
+            PROJECT_ROOT / ".build" / "installers" / "scripts" / "build_installer.py",
+        ),
+    ):
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        modules.append(module)
+    return modules
+
+
+def test_builder_rejects_missing_macos_binary_instead_of_checking_source(
+    build_scripts, tmp_path
+):
+    build_module, _ = build_scripts
+    with patch.object(
+        build_module.OpenBoardBuilder, "_setup_logging", return_value=MagicMock()
+    ):
+        builder = build_module.OpenBoardBuilder(PROJECT_ROOT)
+    builder.is_macos = True
+    builder.is_windows = False
+    builder.dist_dir = tmp_path
+    assert (
+        builder.executable_path
+        == tmp_path / "OpenBoard.app" / "Contents" / "MacOS" / "OpenBoard"
+    )
+    with pytest.raises(build_module.BuildError, match="Command failed"):
+        builder.run_build_validation()
+
+
+def test_build_clean_preserves_wheels_and_unrelated_caches(build_scripts, tmp_path):
+    build_module, _ = build_scripts
+    builder = object.__new__(build_module.OpenBoardBuilder)
+    builder.project_root = tmp_path
+    builder.dist_dir = tmp_path / "dist"
+    builder.build_dir = tmp_path / "build"
+    builder.spec_file = tmp_path / "openboard.spec"
+    builder.logger = MagicMock()
+    executable_dir = builder.dist_dir / "OpenBoard"
+    executable_dir.mkdir(parents=True)
+    (executable_dir / "OpenBoard.exe").write_bytes(b"executable")
+    wheel = builder.dist_dir / "package.whl"
+    wheel.write_bytes(b"wheel")
+    unrelated_cache = tmp_path / ".venv" / "__pycache__"
+    unrelated_cache.mkdir(parents=True)
+    builder._clean_build_artifacts()
+    assert not executable_dir.exists()
+    assert wheel.read_bytes() == b"wheel"
+    assert unrelated_cache.is_dir()
+
+
+def test_requested_rpm_failure_does_not_return_only_deb(build_scripts, tmp_path):
+    _, installers = build_scripts
+    with (
+        patch.object(
+            installers, "build_deb_package", return_value=tmp_path / "openboard.deb"
+        ),
+        patch.object(installers, "build_rpm_package", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match="Requested rpm installer"):
+            installers.build_for_platform(
+                "linux", ["deb", "rpm"], tmp_path, "0.1.0", tmp_path
+            )

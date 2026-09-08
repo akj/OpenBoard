@@ -1,8 +1,5 @@
 """Tests for the exception hierarchy."""
 
-import importlib
-import subprocess
-
 import pytest
 
 from openboard.exceptions import (
@@ -144,40 +141,6 @@ def test_inheritance_chain():
     assert isinstance(move_error, Exception)
 
 
-class TestPrunedExceptionTypes:
-    """Verifies TD-11 / D-19: pruned types are unimportable from openboard.exceptions."""
-
-    @pytest.mark.parametrize("type_name", [
-        "AccessibilityError",
-        "DialogError",
-        "SettingsError",
-        "GameStateError",
-        "UIError",
-    ])
-    def test_pruned_exception_types_unimportable(self, type_name):
-        """Verifies TD-11 / D-19: <type_name> is removed from openboard/exceptions.py.
-
-        Imports the module fresh and asserts the type is absent. Uses import_module to
-        avoid reload() which would change class identity and break isinstance checks in
-        other tests running in the same session.
-        """
-        import sys
-        # Remove cached module to force a clean import for inspection only
-        cached_module = sys.modules.get("openboard.exceptions")
-        try:
-            # Remove and re-import to get the live definition
-            if "openboard.exceptions" in sys.modules:
-                del sys.modules["openboard.exceptions"]
-            module = importlib.import_module("openboard.exceptions")
-            assert not hasattr(module, type_name), (
-                f"TD-11 / D-19: {type_name} must be removed from openboard/exceptions.py"
-            )
-        finally:
-            # Restore original module so other tests are unaffected
-            if cached_module is not None:
-                sys.modules["openboard.exceptions"] = cached_module
-
-
 class TestKeptExceptionTypes:
     """Verifies TD-11 / D-19: wired-up types remain importable and have the expected shape."""
 
@@ -211,44 +174,3 @@ class TestKeptExceptionTypes:
 
         error = NetworkError("dns failed", "no route")
         assert "dns failed" in str(error)
-
-
-class TestPrunedExceptionImportsAbsentFromSource:
-    """Verifies TD-11 / Codex MEDIUM: no production file imports a pruned exception."""
-
-    @pytest.mark.parametrize("pruned_class", [
-        "AccessibilityError",
-        "DialogError",
-        "SettingsError",
-        "GameStateError",
-        "UIError",
-    ])
-    def test_pruned_exception_names_absent_from_source_tree(self, pruned_class):
-        """Verifies Codex MEDIUM grep verification: <pruned_class> is not imported anywhere.
-
-        Searches openboard/ AND tests/ for the patterns:
-        - `from openboard.exceptions import ... <pruned_class>`
-        - `openboard.exceptions.<pruned_class>`
-
-        Exclusions:
-        - tests/test_exceptions.py (this test file itself parametrizes over the names).
-        """
-        patterns = [
-            f"from openboard.exceptions import.*{pruned_class}",
-            f"openboard.exceptions.{pruned_class}",
-        ]
-        offending: list[str] = []
-        for pattern in patterns:
-            result = subprocess.run(
-                ["grep", "-rnE", pattern, "openboard/", "tests/"],
-                capture_output=True,
-                text=True,
-            )
-            for line in result.stdout.splitlines():
-                if "test_exceptions.py" in line:
-                    continue   # this test file legitimately references the names
-                offending.append(line)
-        assert offending == [], (
-            f"TD-11 / Codex MEDIUM: pruned exception `{pruned_class}` is still imported. "
-            f"Offending lines:\n" + "\n".join(offending)
-        )

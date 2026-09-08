@@ -1,17 +1,19 @@
-# OpenBoard Test Suite
+# Running tests
 
-## Testing Patterns
+Install the locked environment with `uv sync --locked`, then run `uv run --no-sync pytest`.
+On Linux, GUI tests need an X display. Use `xvfb-run -a uv run --no-sync pytest` on a headless machine.
 
-All test classes use `setup_method()` for fresh fixtures per test. External dependencies are isolated with `unittest.mock.Mock`. Blinker signals are captured via lambda connections rather than wx events, removing the GUI dependency from unit tests.
+The autouse fixtures in `conftest.py` give each test a temporary OpenBoard profile,
+reset cached settings, and capture speech output. Tests must not use the real user profile
+or contact a screen reader. Tests that need a different profile should use `tmp_path`.
 
-## Controller Test Strategy
+Most model and controller tests run without displaying a window. The menu and board tests
+exercise wx controls. Their assertions establish application behavior, not what NVDA,
+VoiceOver, or another screen reader actually says. Live speech validation remains a
+separate manual check.
 
-Controller tests instantiate `ChessController` with a real `Game` and a `Mock(spec=EngineAdapter)`. No wx dependency is required. This keeps controller tests fast and deterministic while exercising the full controller-to-model boundary.
+For a focused run, pass a file or test name, for example
+`uv run --no-sync pytest tests/test_board_state.py`.
 
-## Fixture Strategy
-
-Shared FEN fixtures (stalemate, insufficient material) and mock factories live in `conftest.py`. Use these fixtures in any test requiring deterministic board positions rather than constructing positions inline.
-
-## Duplicate Test Handling
-
-`test_engine_adapter_simple.py` contains a subset of tests that overlap with `test_engine_adapter.py`. The canonical versions are in `test_engine_adapter.py`. The simple variant is retained for baseline coverage but new engine adapter tests belong in the canonical file.
+CI also builds the executable and runs its `--self-test` startup smoke check. That check
+loads bundled modules and makes a chess move without opening the GUI or speaking.

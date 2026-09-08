@@ -107,6 +107,7 @@ def build_windows_installer(dist_dir: Path, version: str, output_dir: Path) -> P
     command = [
         str(iscc_exe),
         f"/DAppVersion={version}",
+        f"/DSourceRoot={openboard_dist.resolve()}",
         f"/O{output_dir}",
         str(innosetup_script),
     ]

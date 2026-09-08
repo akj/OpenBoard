@@ -1,112 +1,72 @@
 # OpenBoard
 
-An accessible, cross-platform chess GUI built with keyboard-first navigation and screen reader support.
+A desktop chess app with keyboard navigation and screen reader support, built with wxPython and python-chess.
 
-OpenBoard is designed so that blind and visually impaired players can enjoy chess without a mouse. It also works well for sighted players who prefer keyboard controls.
+## Run from source
 
-## Features
+Install Python 3.12 or later and [uv](https://docs.astral.sh/uv/), then run:
 
-- **Full keyboard navigation** — move around the board with arrow keys, select and place pieces with Space
-- **Screen reader support** — announces moves, legal moves, and board state via accessible-output3
-- **Brief and verbose announcement modes** — toggle between concise and detailed move descriptions
-- **Play against Stockfish** — four difficulty levels from Beginner to Master
-- **Human vs Human and Computer vs Computer** modes
-- **Opening book support** — load Polyglot opening books for book move hints
-- **PGN and FEN support** — load and save games in standard formats
-- **Move replay** — step forward and backward through game history
-- **Cross-platform** — runs on Windows, macOS, and Linux
-
-## Installation
-
-### From installers (recommended)
-
-Download the latest installer for your platform from the [Releases](../../releases) page:
-
-- **Windows** — `.exe` installer with Start Menu integration and optional PGN file association
-- **macOS** — `.dmg` disk image, drag to Applications
-- **Linux** — `.deb` (Debian/Ubuntu) or `.rpm` (Fedora/RHEL) packages
-
-### From source
-
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
-
-```bash
-git clone https://github.com/yourusername/openboard.git
-cd openboard
-uv sync
-uv run openboard
+```sh
+git clone https://github.com/akj/OpenBoard.git
+cd OpenBoard
+uv sync --locked
+uv run --no-sync openboard
 ```
 
-## Keyboard shortcuts
+Windows and macOS use wxPython wheels. Linux needs GTK libraries and a display. The project uses the wxPython Ubuntu 24.04 wheel index on Linux. See the [CI workflow](.github/workflows/ci.yml) for the system packages and Xvfb setup.
 
-### Board navigation
+On Ubuntu 24.04, prepare the environment before `uv sync` so speech announcements can use the system Speech Dispatcher binding:
 
-| Key | Action |
-|-----|--------|
-| Arrow keys | Move focus around the board |
-| Space | Select piece / place piece on target square |
-| Shift+Space | Deselect current piece |
-| Ctrl+Z | Undo last move |
-
-### Hints and analysis
-
-| Key | Action |
-|-----|--------|
-| H | Request engine hint |
-| B | Request opening book hint |
-
-### Announcements
-
-| Key | Action |
-|-----|--------|
-| ] | Announce last move |
-| M | Announce legal moves for selected piece |
-| A | Announce pieces attacking focused square |
-| Ctrl+T | Toggle brief/verbose announcement mode |
-| Ctrl+L | Show move list |
-
-### Replay
-
-| Key | Action |
-|-----|--------|
-| F5 | Previous move |
-| F6 | Next move |
-
-## Game modes
-
-Start a new game from the **Game** menu:
-
-- **Human vs Human** (Ctrl+N) — two players on the same board
-- **Human vs Computer** (Ctrl+M) — choose your color and difficulty
-- **Computer vs Computer** (Ctrl+K) — watch two engines play with independent difficulty settings
-
-### Difficulty levels
-
-| Level | Description |
-|-------|-------------|
-| Beginner | Good for learning |
-| Intermediate | Moderate challenge (default) |
-| Advanced | Strong opponent |
-| Master | Very strong play |
-
-## Engine setup
-
-OpenBoard uses [Stockfish](https://stockfishchess.org/) for computer play and hints. You can install it directly from the **Engine** menu, or OpenBoard will detect an existing Stockfish installation on your system.
-
-## Contributing
-
-Contributions are welcome. The project uses:
-
-- **ruff** for linting and formatting
-- **ty** for type checking
-- **pytest** for testing
-
-```bash
-uv run ruff check .
-uv run ty check
-uv run pytest
+```sh
+sudo apt-get install python3-venv python3-speechd speech-dispatcher espeak-ng libgtk-3-0t64 libnotify4 libsdl2-2.0-0
+uv venv --python /usr/bin/python3 --system-site-packages
+uv sync --locked
 ```
 
-## License
+Linux portable builds include the Python binding but still need a running Speech Dispatcher service. macOS speech uses VoiceOver or the system synthesizer.
 
-MIT — see [LICENSE](LICENSE) for details.
+Stockfish is optional for two local players. Use the Engine menu to install it on Windows, or install Stockfish yourself and put it on PATH. Computer games and engine hints need an engine. Opening book hints use a Polyglot `.bin` file loaded from the Opening Book menu.
+
+## Play with the keyboard
+
+| Key | Action |
+| --- | --- |
+| Arrow keys | Focus an adjacent square |
+| Space | Select a piece or move it to the focused square |
+| Shift+Space | Deselect the piece |
+| Ctrl+Z | Undo |
+| H | Request an engine hint |
+| B | Request an opening book hint |
+| M | Announce legal moves for the selected piece |
+| A | Announce attackers of the focused square |
+| ] | Repeat the last move |
+| Ctrl+L | Open the move list |
+| F5 / F6 | Previous / next replay move |
+
+The Game menu starts human versus human, human versus computer, and computer versus computer games. Promotion opens a piece chooser. Replay preserves the imported starting position and the full move list.
+
+On Windows, the board exposes square names, roles, focus, and selection through native accessibility. Move and game announcements use accessible-output3. Other platforms retain spoken navigation. Native API tests do not replace testing the app with a screen reader. See [AUDIT.md](AUDIT.md) for the validation completed during the revival and its limits.
+
+## Configuration and development
+
+Keyboard overrides live in `keyboard_config.json` in the platform's user configuration directory. Engines live in the user data directory, and logs in the user state directory. Set `OPENBOARD_PROFILE_DIR` to use a separate profile. Absent or invalid keyboard files fall back to the defaults in [keyboard_config.py](openboard/config/keyboard_config.py). The loader skips unknown actions with a logged warning and preserves recognized bindings. If every binding has an unknown action, it uses the defaults.
+
+```sh
+uv run --no-sync pytest
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync ty check
+uv run --no-sync openboard --self-test
+```
+
+Tests capture app speech and use temporary profiles. Linux GUI tests run under `xvfb-run -a`. The startup self-test imports the app and makes a legal move without opening a window or speaking.
+
+To build a standalone executable:
+
+```sh
+uv run --no-sync python .build/scripts/build.py
+```
+
+The build checks startup before and after packaging. CI runs the full test suite on Windows, macOS, and Linux, then builds portable archives and checks their extracted executables. Platform installers require [additional system tools](.build/installers/README.md). The release workflow reuses CI with installer builds enabled and checks the release tag against the package version before publishing. [Renovate configuration](renovate.json) controls dependency updates and lockfile maintenance.
+
+MIT license. See [LICENSE](LICENSE).

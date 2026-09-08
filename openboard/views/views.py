@@ -1,4 +1,4 @@
-import json
+import threading
 import wx
 import chess
 from pathlib import Path
@@ -11,13 +11,13 @@ from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
 from ..config.settings import get_settings
+from ..config.paths import keyboard_config_path
 from ..config.keyboard_config import (
     GameKeyboardConfig,
     KeyboardCommandHandler,
     KeyAction,
     load_keyboard_config_from_json,
 )
-from ..exceptions import EngineError, EngineNotFoundError, EngineInitializationError
 from .game_dialogs import (
     show_game_setup_dialog,
     show_difficulty_info_dialog,
@@ -36,18 +36,27 @@ class BoardPanel(wx.Panel):
     def __init__(self, parent, controller: "ChessController"):
         # wx.Size expects a wx.Size object, not a tuple
         super().__init__(
-            parent, size=wx.Size(get_settings().ui.board_size, get_settings().ui.board_size)
+            parent,
+            size=wx.Size(get_settings().ui.board_size, get_settings().ui.board_size),
         )
         self.controller: "ChessController" = controller
         self.board = controller.game.board_state.board
         self.focus = controller.current_square
         self.selected = None
         self.hint_move = None
+        self.square_size = get_settings().ui.square_size
 
         # Set accessible name based on game mode
         accessible_name = self._get_accessible_panel_name()
         self.SetName(accessible_name)
         self.SetLabel(accessible_name)
+        self.accessible = None
+        if wx.Platform == "__WXMSW__" and wx.USE_ACCESSIBILITY:
+            from .board_accessibility import BoardAccessible
+
+            self.accessible = BoardAccessible(self)
+            self.SetAccessible(self.accessible)
+            controller.announce_navigation = False
 
         # subscribe to controller signals
         controller.board_updated.connect(self.on_board_updated)
@@ -56,8 +65,19 @@ class BoardPanel(wx.Panel):
         controller.hint_ready.connect(self.on_hint_ready)
 
         # enable keyboard focus
-        self.SetFocus()
         self.Bind(wx.EVT_PAINT, self.on_paint)
+        self.Bind(wx.EVT_SET_FOCUS, self.on_focus)
+
+    def AcceptsFocus(self):
+        return True
+
+    def on_focus(self, event):
+        self._notify_accessibility(wx.ACC_EVENT_OBJECT_FOCUS, self.focus)
+        event.Skip()
+
+    def _notify_accessibility(self, event, square):
+        if self.accessible and self.IsShownOnScreen():
+            wx.Accessible.NotifyEvent(event, self, wx.OBJID_CLIENT, square + 1)
 
     def _get_piece(self, square):
         """Safely get the piece at a given square, or None if out of bounds or empty."""
@@ -76,16 +96,26 @@ class BoardPanel(wx.Panel):
     def on_board_updated(self, sender, board):
         """Model pushed a new board position."""
         self.board = board
+        self.hint_move = None
+        self.SetName(self._get_accessible_panel_name())
+        self.SetLabel(self.GetName())
+        self._notify_accessibility(wx.ACC_EVENT_OBJECT_NAMECHANGE, self.focus)
         self.Refresh()
 
     def on_square_focused(self, sender, square):
         """Controller moved the focus."""
         self.focus = square
+        if self.HasFocus():
+            self._notify_accessibility(wx.ACC_EVENT_OBJECT_FOCUS, square)
         self.Refresh()
 
     def on_selection_changed(self, sender, selected_square):
         """Controller changed selection state."""
+        previous = self.selected
         self.selected = selected_square
+        for square in (previous, selected_square):
+            if square is not None:
+                self._notify_accessibility(wx.ACC_EVENT_OBJECT_STATECHANGE, square)
         self.Refresh()
 
     def on_hint_ready(self, sender, move):
@@ -95,12 +125,13 @@ class BoardPanel(wx.Panel):
 
     def on_paint(self, event):
         dc = wx.PaintDC(self)
+        ui = get_settings().ui
         for rank in range(8):
             for file in range(8):
                 sq = rank * 8 + file
                 x, y = (
-                    file * get_settings().ui.square_size,
-                    (7 - rank) * get_settings().ui.square_size,
+                    file * ui.square_size,
+                    (7 - rank) * ui.square_size,
                 )
 
                 # square color
@@ -108,15 +139,13 @@ class BoardPanel(wx.Panel):
                 color = wx.Colour(240, 240, 200) if light else wx.Colour(100, 150, 100)
                 dc.SetBrush(wx.Brush(color))
                 dc.SetPen(wx.Pen(color))
-                dc.DrawRectangle(x, y, get_settings().ui.square_size, get_settings().ui.square_size)
+                dc.DrawRectangle(x, y, ui.square_size, ui.square_size)
 
                 # highlight focus
                 if sq == self.focus:
                     dc.SetBrush(wx.Brush(wx.Colour(255, 255, 0, 64)))
                     dc.SetPen(wx.Pen(wx.Colour(255, 255, 0)))
-                    dc.DrawRectangle(
-                        x, y, get_settings().ui.square_size, get_settings().ui.square_size
-                    )
+                    dc.DrawRectangle(x, y, ui.square_size, ui.square_size)
 
                 # highlight selection
                 if self.selected == sq:
@@ -125,8 +154,8 @@ class BoardPanel(wx.Panel):
                     dc.DrawRectangle(
                         x + 2,
                         y + 2,
-                        get_settings().ui.square_size - 4,
-                        get_settings().ui.square_size - 4,
+                        ui.square_size - 4,
+                        ui.square_size - 4,
                     )
 
                 # highlight hint move destination
@@ -136,14 +165,14 @@ class BoardPanel(wx.Panel):
                     dc.DrawRectangle(
                         x + 2,
                         y + 2,
-                        get_settings().ui.square_size - 4,
-                        get_settings().ui.square_size - 4,
+                        ui.square_size - 4,
+                        ui.square_size - 4,
                     )
 
                 # draw piece
                 piece = self.board.piece_at(sq)
                 if piece:
-                    glyph = get_settings().ui.piece_unicode[piece.symbol()]
+                    glyph = ui.piece_unicode[piece.symbol()]
                     dc.SetFont(
                         wx.Font(
                             32,
@@ -190,6 +219,9 @@ class ChessFrame(wx.Frame):
         # wx.Size expects a wx.Size object, not a tuple
         super().__init__(None, title="Accessible Chess", size=wx.Size(500, 550))
         self.controller = controller
+        self._closing = threading.Event()
+        self._engine_starting = False
+        self._pending_engine = None
         # Use the correct attribute for accessible_output3
         self.speech = ao2.Auto()
 
@@ -213,8 +245,88 @@ class ChessFrame(wx.Frame):
         controller.status_changed.connect(self.on_status_changed)
         controller.hint_ready.connect(self.on_hint_ready)
         controller.computer_thinking.connect(self.on_computer_thinking)
+        controller.promotion_requested.connect(self.on_promotion_requested)
 
         self.Show()
+        self.board_panel.SetFocus()
+        wx.CallAfter(controller.start)
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+    def start_engine(self):
+        """Keep the board usable while the engine starts its UCI process."""
+        if (
+            self._engine_starting
+            or self._closing.is_set()
+            or self.controller.game.engine_adapter
+        ):
+            return
+        self._engine_starting = True
+        self.status.SetStatusText("Starting chess engine")
+        threading.Thread(
+            target=self._initialize_engine, name="OpenBoard engine startup"
+        ).start()
+
+    def _initialize_engine(self):
+        engine = None
+        error = None
+        try:
+            engine = EngineAdapter(options={"Threads": 2, "Hash": 128})
+            engine.start()
+            self._pending_engine = engine
+        except Exception as failure:
+            error = str(failure)
+            if engine:
+                engine.stop()
+            engine = None
+        if self._closing.is_set():
+            if engine:
+                engine.stop()
+            return
+        wx.CallAfter(self._finish_engine_start, engine, error)
+
+    def _finish_engine_start(self, engine, error):
+        if self._closing.is_set():
+            if engine:
+                threading.Thread(
+                    target=engine.stop, name="OpenBoard engine shutdown"
+                ).start()
+            return
+        self._engine_starting = False
+        self._pending_engine = None
+        self.controller.game.engine_adapter = engine
+        if error:
+            logger.warning("Engine initialization failed: %s", error)
+            message = "No chess engine available. Human vs human play is ready"
+        else:
+            message = "Chess engine ready"
+        self.on_announce(self.controller, message)
+        if engine:
+            self.controller.continue_computer_game()
+
+    def on_close(self, event):
+        self._closing.set()
+        self.controller.game.close()
+        engine = self.controller.game.engine_adapter or self._pending_engine
+        if engine:
+            self.controller.game.engine_adapter = None
+            threading.Thread(
+                target=engine.stop, name="OpenBoard engine shutdown"
+            ).start()
+        event.Skip()
+
+    def on_promotion_requested(self, sender, source, destination):
+        with wx.SingleChoiceDialog(
+            self,
+            "Promote pawn to",
+            "Pawn promotion",
+            ["Queen", "Rook", "Bishop", "Knight"],
+        ) as dialog:
+            if dialog.ShowModal() == wx.ID_OK:
+                pieces = [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]
+                self.controller.promote(
+                    source, destination, pieces[dialog.GetSelection()]
+                )
+        self.board_panel.SetFocus()
 
     def _build_menu_bar(self) -> None:
         """Construct the menu bar and bind all EVT_MENU events to specific item IDs.
@@ -242,17 +354,18 @@ class ChessFrame(wx.Frame):
 
         # ── Game menu ──────────────────────────────────────────────────────────────
         game_menu = wx.Menu()
-        human_vs_human_item = game_menu.Append(wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N")
-        human_vs_computer_item = game_menu.Append(wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M")
-        computer_vs_computer_item = game_menu.Append(wx.ID_ANY, "New Game: Computer vs Computer\tCtrl-K")
+        human_vs_human_item = game_menu.Append(
+            wx.ID_ANY, "New Game: &Human vs Human\tCtrl-N"
+        )
+        human_vs_computer_item = game_menu.Append(
+            wx.ID_ANY, "New Game: Human vs &Computer\tCtrl-M"
+        )
+        computer_vs_computer_item = game_menu.Append(
+            wx.ID_ANY, "New Game: Computer vs Computer\tCtrl-K"
+        )
         game_menu.AppendSeparator()
         difficulty_info_item = game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
         menu_bar.Append(game_menu, "&Game")
-
-        # ── Options menu ───────────────────────────────────────────────────────────
-        options_menu = wx.Menu()
-        announce_mode_item = options_menu.Append(wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T")
-        menu_bar.Append(options_menu, "&Options")
 
         # ── Engine menu ────────────────────────────────────────────────────────────
         engine_menu = wx.Menu()
@@ -280,24 +393,59 @@ class ChessFrame(wx.Frame):
         wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_load_pgn, id=pgn_item.GetId())
         wx.EvtHandler.Bind(self, wx.EVT_MENU, lambda e: self.Close(), id=wx.ID_EXIT)
 
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_human_vs_human, id=human_vs_human_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_human_vs_computer, id=human_vs_computer_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_new_computer_vs_computer, id=computer_vs_computer_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_difficulty_info, id=difficulty_info_item.GetId())
-
         wx.EvtHandler.Bind(
-            self, wx.EVT_MENU, lambda e: self.controller.toggle_announce_mode(),
-            id=announce_mode_item.GetId(),
+            self,
+            wx.EVT_MENU,
+            self.on_new_human_vs_human,
+            id=human_vs_human_item.GetId(),
+        )
+        wx.EvtHandler.Bind(
+            self,
+            wx.EVT_MENU,
+            self.on_new_human_vs_computer,
+            id=human_vs_computer_item.GetId(),
+        )
+        wx.EvtHandler.Bind(
+            self,
+            wx.EVT_MENU,
+            self.on_new_computer_vs_computer,
+            id=computer_vs_computer_item.GetId(),
+        )
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, self.on_difficulty_info, id=difficulty_info_item.GetId()
         )
 
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_install_stockfish, id=install_stockfish_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_update_stockfish, id=update_stockfish_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_check_engine_status, id=engine_status_item.GetId())
+        wx.EvtHandler.Bind(
+            self,
+            wx.EVT_MENU,
+            self.on_install_stockfish,
+            id=install_stockfish_item.GetId(),
+        )
+        wx.EvtHandler.Bind(
+            self,
+            wx.EVT_MENU,
+            self.on_update_stockfish,
+            id=update_stockfish_item.GetId(),
+        )
+        wx.EvtHandler.Bind(
+            self,
+            wx.EVT_MENU,
+            self.on_check_engine_status,
+            id=engine_status_item.GetId(),
+        )
 
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_load_opening_book, id=load_book_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_unload_opening_book, id=unload_book_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_book_hint, id=book_hint_item.GetId())
-        wx.EvtHandler.Bind(self, wx.EVT_MENU, self.on_check_book_moves, id=check_book_item.GetId())
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, self.on_load_opening_book, id=load_book_item.GetId()
+        )
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, self.on_unload_opening_book, id=unload_book_item.GetId()
+        )
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, self.on_book_hint, id=book_hint_item.GetId()
+        )
+        wx.EvtHandler.Bind(
+            self, wx.EVT_MENU, self.on_check_book_moves, id=check_book_item.GetId()
+        )
 
     def on_load_fen(self, event):
         with wx.TextEntryDialog(self, "Enter FEN:", "Load FEN") as dlg:
@@ -314,8 +462,13 @@ class ChessFrame(wx.Frame):
         ) as dlg:
             if dlg.ShowModal() == wx.ID_OK:
                 path = dlg.GetPath()
-                with open(path, "r", encoding="utf-8") as f:
-                    text = f.read()
+                try:
+                    text = Path(path).read_text(encoding="utf-8-sig")
+                except (OSError, UnicodeError) as error:
+                    wx.MessageBox(
+                        str(error), "Cannot load PGN", wx.OK | wx.ICON_ERROR, self
+                    )
+                    return
                 self.controller.load_pgn(text)
 
     def on_key(self, event):
@@ -390,7 +543,6 @@ class ChessFrame(wx.Frame):
     def on_install_stockfish(self, event):
         """Handle Engine > Install Stockfish menu selection."""
         from ..engine.stockfish_manager import StockfishManager
-        from .engine_dialogs import EngineInstallationRunner
 
         manager = StockfishManager()
 
@@ -405,7 +557,7 @@ class ChessFrame(wx.Frame):
 
         # Check if already installed
         status = manager.get_status()
-        if status["local_installed"] and not status["update_available"]:
+        if status["local_installed"]:
             result = wx.MessageBox(
                 f"Stockfish {status['local_version']} is already installed.\n\nDo you want to reinstall?",
                 "Already Installed",
@@ -415,13 +567,32 @@ class ChessFrame(wx.Frame):
                 return
 
         # Run installation
-        runner = EngineInstallationRunner(self, manager)
-        runner.start_installation()
+        self._run_engine_installation(manager)
+
+    def _run_engine_installation(self, manager, update=False):
+        from .engine_dialogs import EngineInstallationRunner
+
+        if self._engine_starting:
+            self.on_announce(
+                self.controller,
+                "Chess engine is starting. Please try again once it is ready",
+            )
+            return
+        self._engine_starting = True
+        engine = self.controller.game.engine_adapter
+        self.controller.game.engine_adapter = None
+        self.controller.cancel_pending_requests()
+        try:
+            EngineInstallationRunner(self, manager, engine).start_installation(
+                update=update
+            )
+        finally:
+            self._engine_starting = False
+            self.start_engine()
 
     def on_update_stockfish(self, event):
         """Handle Engine > Update Stockfish menu selection."""
         from ..engine.stockfish_manager import StockfishManager
-        from .engine_dialogs import EngineInstallationRunner
 
         manager = StockfishManager()
         status = manager.get_status()
@@ -436,17 +607,7 @@ class ChessFrame(wx.Frame):
                 self.on_install_stockfish(event)
             return
 
-        if not status["update_available"]:
-            wx.MessageBox(
-                f"Stockfish {status['local_version']} is already up to date.",
-                "Up to Date",
-                wx.OK | wx.ICON_INFORMATION,
-            )
-            return
-
-        # Run update
-        runner = EngineInstallationRunner(self, manager)
-        runner.start_installation()
+        self._run_engine_installation(manager, update=True)
 
     def on_check_engine_status(self, event):
         """Handle Engine > Check Engine Status menu selection."""
@@ -461,7 +622,7 @@ class ChessFrame(wx.Frame):
             # If user clicked Install/Update, trigger installation
             if result == wx.ID_OK:
                 status = manager.get_status()
-                if status["update_available"]:
+                if status["local_installed"]:
                     self.on_update_stockfish(event)
                 else:
                     self.on_install_stockfish(event)
@@ -500,7 +661,7 @@ class ChessFrame(wx.Frame):
     def on_new_human_vs_human(self, event):
         """Handle Game > New Game: Human vs Human menu selection."""
         config = GameConfig(mode=GameMode.HUMAN_VS_HUMAN, human_color=chess.WHITE)
-        self.controller.game.new_game(config)
+        self.controller.new_game(config)
         self.controller.announce.send(
             self.controller, text="New human vs human game started"
         )
@@ -524,16 +685,12 @@ class ChessFrame(wx.Frame):
                 human_color=human_color,
                 difficulty=difficulty,
             )
-            self.controller.game.new_game(config)
+            self.controller.new_game(config)
 
             color_name = "White" if human_color == chess.WHITE else "Black"
             difficulty_name = difficulty.title()
             message = f"New game started: You are {color_name}, Computer is {difficulty_name} level"
             self.controller.announce.send(self.controller, text=message)
-
-            # If computer plays white, start its move
-            if self.controller.game.is_computer_turn():
-                self.controller._request_computer_move_async()
 
     def on_new_computer_vs_computer(self, event):
         """Handle Game > New Game: Computer vs Computer menu selection."""
@@ -553,69 +710,50 @@ class ChessFrame(wx.Frame):
                 white_difficulty=white_difficulty,
                 black_difficulty=black_difficulty,
             )
-            self.controller.game.new_game(config)
+            self.controller.new_game(config)
             self.controller.announce.send(
                 self.controller,
                 text=f"New computer vs computer game started. White: {white_difficulty}, Black: {black_difficulty}",
             )
 
-            # Start the first computer move if it's white's turn
-            if self.controller.game.is_computer_turn():
-                self.controller._request_computer_move_async()
-
     def on_difficulty_info(self, event):
         """Handle Game > Difficulty Info menu selection."""
         show_difficulty_info_dialog(self)
 
-    def on_computer_thinking(self, sender, thinking: bool):
-        """Handle computer thinking status changes."""
-        # No longer show thinking message - just handle the signal
-        pass
+    def on_computer_thinking(self, sender, thinking: bool, error=None, completed=False):
+        """Schedule successive computer turns without nesting synchronous book moves."""
+        if completed:
+            wx.CallAfter(self._continue_computer_game)
+
+    def _continue_computer_game(self):
+        if self and not self.IsBeingDeleted() and not self._engine_starting:
+            self.controller.continue_computer_game()
 
     def on_show_move_list(self):
-        """Show the move list dialog (Ctrl+L)."""
-        # Get current move list from board state
-        move_list = list(self.controller.game.board_state.board.move_stack)
-
+        """Review the complete move history, including moves ahead of replay focus."""
+        start_board, move_list, current_position = self.controller.move_history()
         if not move_list:
-            # Use controller's announce system instead of direct speech
             self.controller.announce.send(
                 self.controller, text="No moves in current game"
             )
             return
-
-        # Check if game is ongoing (not finished) and not in replay mode
-        board = self.controller.game.board_state.board
-        is_in_replay = self.controller._in_replay
-        game_is_ongoing = not board.is_game_over() and not is_in_replay
-
-        # Calculate current position (number of moves played)
-        current_position = len(move_list) - 1
-
-        # Show dialog with navigation disabled only for ongoing non-replay games
+        board = self.controller.game.board_state.board_ref
+        game_is_ongoing = not board.is_game_over() and not self.controller.in_replay
         selected_position = show_move_list_dialog(
             self,
             move_list,
             current_position,
             allow_navigation=not game_is_ongoing,
             is_ongoing_game=game_is_ongoing,
+            start_board=start_board,
         )
-
-        # Only navigate if game is finished or in replay mode and user selected a position
-        if selected_position is not None and game_is_ongoing:
-            self.controller.announce.send(
-                self.controller,
-                text="Cannot navigate to different positions during an ongoing game",
-            )
-        elif selected_position is not None:
-            # Navigate to the selected position via model-routed controller method (TD-03 / D-06)
+        if selected_position is not None and not game_is_ongoing:
             self.controller.replay_to_position(selected_position)
+        self.board_panel.SetFocus()
 
     def _load_keyboard_config(self) -> GameKeyboardConfig:
         """Load keyboard configuration from JSON file or use default."""
-        config_path = (
-            Path(__file__).parent.parent.parent / "config" / "keyboard_config.json"
-        )
+        config_path = keyboard_config_path()
 
         if config_path.exists():
             try:
@@ -644,9 +782,6 @@ class ChessFrame(wx.Frame):
             KeyAction.REQUEST_BOOK_HINT: lambda: self.controller.request_book_hint(),
             KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
             KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
-            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: (
-                self.controller.toggle_announce_mode()
-            ),
             KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
             KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
             KeyAction.ANNOUNCE_LEGAL_MOVES: lambda: (
@@ -661,56 +796,17 @@ class ChessFrame(wx.Frame):
 
 
 def main():
-    # Initialize logging
     setup_logging(log_level="INFO", console_output=True)
     logger.info("Starting OpenBoard")
-
-    # Codex HIGH: migration MUST run before settings are initialized (Pitfall 3).
-    # See tests/test_views_startup_ordering.py for the regression that locks this in.
     from ..config.migration import migrate_legacy_paths
+
     migrate_legacy_paths()
-
-    # Now safe to initialize settings — they will be read from the migrated paths.
-    settings = get_settings()  # noqa: F841
-
-    # load config
-    try:
-        with open("config.json") as f:
-            cfg = json.load(f)
-        logger.info("Configuration loaded from config.json")
-    except Exception as e:
-        cfg = {"announce_mode": "verbose"}
-        logger.info(
-            f"Using default configuration (config.json not found or invalid: {e})"
-        )
-
-    # set up engine & game
-    try:
-        engine = EngineAdapter(options={"Threads": 2, "Hash": 128})
-        engine.start()
-        game = Game(engine)
-        logger.info("Engine initialized successfully")
-    except (EngineError, EngineNotFoundError, EngineInitializationError) as e:
-        logger.warning(f"Engine initialization failed: {e}")
-        # Fall back to no engine mode
-        game = Game()
-        logger.info("Running in engine-free mode")
-
-    # controller
-    controller = ChessController(game, config=cfg)
-
-    # wx App
-    logger.info("Initializing GUI")
+    get_settings()
     app = wx.App(False)
-    ChessFrame(controller)
-    logger.info("Starting main event loop")
+    controller = ChessController(Game())
+    frame = ChessFrame(controller)
+    frame.start_engine()
     app.MainLoop()
-
-    # Clean up engine if it was created
-    if game.engine:
-        logger.info("Shutting down engine")
-        game.engine.stop()
-
     logger.info("OpenBoard shutdown complete")
 
 

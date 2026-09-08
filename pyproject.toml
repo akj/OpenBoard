@@ -6,27 +6,28 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accessible-output3",
+    "appscript>=1.4.0; sys_platform == 'darwin'",
     "blinker>=1.9.0",
     "chess>=1.11.2",
-    "platformdirs>=4.3.8",
-    "pydantic>=2.13.3",
+    "platformdirs>=4.11.7",
+    "pydantic>=2.13.5",
     "wxpython>=4.2.4",
 ]
 
 [project.scripts]
-openboard = "openboard.views.views:main"
+openboard = "openboard.__main__:main"
 
 
 [dependency-groups]
 dev = [
     "cairosvg>=2.9.0",
-    "pillow>=12.2.0",
-    "pyinstaller>=6.19.0",
-    "pytest>=9.0.1",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
-    "ruff>=0.14.6",
-    "ty>=0.0.11",
+    "pillow>=12.3.0",
+    "pyinstaller>=6.22.2",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.5",
+    "ty>=0.0.77",
 ]
 
 [tool.uv.sources]
@@ -40,3 +41,28 @@ name = "wxpython-linux"
 url = "https://extras.wxpython.org/wxPython4/extras/linux/gtk3/ubuntu-24.04/"
 format = "flat"
 explicit = true
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["openboard*"]
+
+[tool.uv]
+required-version = ">=0.12.7"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+asyncio_mode = "strict"
+
+[tool.ruff]
+target-version = "py312"
+include = ["*.py", "*.pyi", "pyproject.toml"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.format]
+line-ending = "lf"

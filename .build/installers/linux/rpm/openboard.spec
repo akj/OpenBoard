@@ -4,8 +4,7 @@ Release:        1%{?dist}
 Summary:        Accessible chess GUI with screen reader support
 
 License:        MIT
-URL:            https://github.com/openboard/openboard
-Source0:        %{name}-%{version}.tar.gz
+URL:            https://github.com/akj/OpenBoard
 
 # Runtime dependencies
 Requires:       gtk3
@@ -38,14 +37,13 @@ mkdir -p %{buildroot}/opt/openboard
 mkdir -p %{buildroot}/usr/share/applications
 mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps
 
-# Copy application files (will be done by build script)
-# cp -r OpenBoard/* %{buildroot}/opt/openboard/
+cp -a "%{_sourcedir}/OpenBoard/." "%{buildroot}/opt/openboard/"
 
 # Install desktop file
-install -D -m 644 openboard.desktop %{buildroot}/usr/share/applications/openboard.desktop
+install -D -m 644 "%{_sourcedir}/openboard.desktop" %{buildroot}/usr/share/applications/openboard.desktop
 
 # Install icon
-install -D -m 644 openboard.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/openboard.png
+install -D -m 644 "%{_sourcedir}/openboard.png" %{buildroot}/usr/share/icons/hicolor/256x256/apps/openboard.png
 
 %files
 /opt/openboard/*
@@ -55,27 +53,22 @@ install -D -m 644 openboard.png %{buildroot}/usr/share/icons/hicolor/256x256/app
 %post
 # Update desktop database
 if [ -x /usr/bin/update-desktop-database ]; then
-    /usr/bin/update-desktop-database -q /usr/share/applications &> /dev/null || :
+    /usr/bin/update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || :
 fi
 
 # Update icon cache
 if [ -x /usr/bin/gtk-update-icon-cache ]; then
-    /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor &> /dev/null || :
-fi
-
-# Update MIME database
-if [ -x /usr/bin/update-mime-database ]; then
-    /usr/bin/update-mime-database /usr/share/mime &> /dev/null || :
+    /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor >/dev/null 2>&1 || :
 fi
 
 %postun
 # Clean up after uninstall
 if [ $1 -eq 0 ]; then
     if [ -x /usr/bin/update-desktop-database ]; then
-        /usr/bin/update-desktop-database -q /usr/share/applications &> /dev/null || :
+        /usr/bin/update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || :
     fi
     if [ -x /usr/bin/gtk-update-icon-cache ]; then
-        /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor &> /dev/null || :
+        /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor >/dev/null 2>&1 || :
     fi
 fi
 

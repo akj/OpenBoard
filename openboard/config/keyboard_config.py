@@ -1,11 +1,35 @@
 """Keyboard command configuration system using Pydantic dataclasses."""
 
-from typing import Callable, Protocol
-from enum import Enum
+import ast
+import logging
+from collections.abc import Callable, Mapping
 from dataclasses import field
-from pydantic import Field
-from pydantic.dataclasses import dataclass
+from enum import Enum
+from typing import Protocol
+
 import wx
+from pydantic import Field, field_validator
+from pydantic.dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+def _key_code(key: str) -> int:
+    """Resolve a configured key without executing expressions."""
+    if key.startswith("wx.WXK_"):
+        value = getattr(wx, key[3:], None)
+        if not isinstance(value, int):
+            raise ValueError(f"Unknown wx key: {key}")
+        return value
+    if key.startswith("ord(") and key.endswith(")"):
+        try:
+            value = ast.literal_eval(key[4:-1])
+        except (SyntaxError, ValueError) as error:
+            raise ValueError(f"Invalid character key: {key}") from error
+        if not isinstance(value, str) or len(value) != 1:
+            raise ValueError("Character keys must contain exactly one character")
+        return ord(value)
+    return int(key)
 
 
 class KeyModifier(str, Enum):
@@ -34,7 +58,6 @@ class KeyAction(str, Enum):
     REQUEST_HINT = "request_hint"
     REPLAY_PREV = "replay_prev"
     REPLAY_NEXT = "replay_next"
-    TOGGLE_ANNOUNCE_MODE = "toggle_announce_mode"
     SHOW_MOVE_LIST = "show_move_list"
     ANNOUNCE_LAST_MOVE = "announce_last_move"
     ANNOUNCE_LEGAL_MOVES = "announce_legal_moves"
@@ -72,6 +95,12 @@ class KeyBinding:
     )
     enabled: bool = Field(default=True, description="Whether this binding is enabled")
 
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, key: str) -> str:
+        _key_code(key)
+        return key
+
     def matches(
         self, key_code: int, shift: bool = False, ctrl: bool = False, alt: bool = False
     ) -> bool:
@@ -79,25 +108,8 @@ class KeyBinding:
         if not self.enabled:
             return False
 
-        # Check key match
-        if isinstance(self.key, str):
-            if self.key.startswith("wx."):
-                # Handle wx constants like "wx.WXK_UP"
-                wx_key = getattr(wx, self.key.split(".", 1)[1], None)
-                if wx_key != key_code:
-                    return False
-            elif self.key.startswith("ord(") and self.key.endswith(")"):
-                # Handle ord('H') syntax
-                char = self.key[5:-2]  # Extract character from ord('X')
-                if ord(char) != key_code:
-                    return False
-            else:
-                # Direct integer comparison
-                if int(self.key) != key_code:
-                    return False
-        else:
-            if self.key != key_code:
-                return False
+        if _key_code(self.key) != key_code:
+            return False
 
         # Check modifiers
         match self.modifiers:
@@ -183,12 +195,6 @@ class GameKeyboardConfig:
                 key="wx.WXK_F6", action=KeyAction.REPLAY_NEXT, description="Next move"
             ),
             # Accessibility
-            KeyBinding(
-                key="ord('T')",
-                modifiers=KeyModifier.CTRL,
-                action=KeyAction.TOGGLE_ANNOUNCE_MODE,
-                description="Toggle announce mode",
-            ),
             KeyBinding(
                 key="ord('L')",
                 modifiers=KeyModifier.CTRL,
@@ -307,7 +313,7 @@ class KeyboardCommandHandler:
     def __init__(
         self,
         config: KeyboardConfigProtocol,
-        action_handlers: dict[KeyAction, Callable[[], None]],
+        action_handlers: Mapping[KeyAction, Callable[[], None]],
     ):
         """
         Initialize the keyboard command handler.
@@ -377,12 +383,35 @@ class KeyboardCommandHandler:
 
 
 def load_keyboard_config_from_json(json_data: str) -> GameKeyboardConfig:
-    """Load keyboard configuration from JSON string."""
+    """Load bindings, ignoring unknown actions without losing valid custom keys.
+
+    A file containing only unknown actions uses the default bindings. Malformed
+    bindings for supported actions still raise a validation error.
+    """
     import json
+
     from pydantic import TypeAdapter
 
     adapter = TypeAdapter(GameKeyboardConfig)
     data = json.loads(json_data)
+    if isinstance(data, dict) and isinstance(data.get("bindings"), list):
+        known_actions = {action.value for action in KeyAction}
+        bindings = []
+        ignored = False
+        for binding in data["bindings"]:
+            action = binding.get("action") if isinstance(binding, dict) else None
+            if isinstance(action, str) and action not in known_actions:
+                logger.warning(
+                    "Ignoring keyboard binding for unknown action %r", action
+                )
+                ignored = True
+            else:
+                bindings.append(binding)
+        if ignored:
+            if bindings:
+                data["bindings"] = bindings
+            else:
+                data.pop("bindings")
     return adapter.validate_python(data)
 
 

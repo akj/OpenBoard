@@ -13,7 +13,6 @@ class UISettings:
 
     square_size: int = 60
     piece_unicode: dict[str, str] = field(default_factory=dict)
-    announcement_mode: str = "brief"  # "brief" | "verbose"
 
     def __post_init__(self):
         """Initialize default values that require computation."""
@@ -103,9 +102,6 @@ class Settings:
         """Validate all settings."""
         if self.ui.square_size <= 0:
             raise ValueError("UI square_size must be positive")
-
-        if self.ui.announcement_mode not in ["brief", "verbose"]:
-            raise ValueError("UI announcement_mode must be 'brief' or 'verbose'")
 
         if self.engine.default_timeout_ms <= 0:
             raise ValueError("Engine default_timeout_ms must be positive")

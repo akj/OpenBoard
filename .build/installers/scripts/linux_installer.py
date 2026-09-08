@@ -139,7 +139,13 @@ def build_deb_package(dist_dir: Path, version: str, output_dir: Path) -> Path:
 
         logger.info(f"Building DEB package: {output_filename}")
         subprocess.run(
-            ["dpkg-deb", "--build", str(temp_dir), str(output_path)],
+            [
+                "dpkg-deb",
+                "--root-owner-group",
+                "--build",
+                str(temp_dir),
+                str(output_path),
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -223,55 +229,21 @@ def build_rpm_package(dist_dir: Path, version: str, output_dir: Path) -> Path | 
 
         logger.info("Created RPM build directory structure")
 
-        # Create buildroot directory structure for %install section
-        install_root = build_root / "BUILDROOT" / f"openboard-{version}-1.x86_64"
-        opt_dir = install_root / "opt" / "openboard"
-        desktop_dir = install_root / "usr" / "share" / "applications"
-        icon_dir = (
-            install_root / "usr" / "share" / "icons" / "hicolor" / "256x256" / "apps"
-        )
-
-        opt_dir.mkdir(parents=True)
-        desktop_dir.mkdir(parents=True)
-        icon_dir.mkdir(parents=True)
-
-        # Copy executable and all files to buildroot
-        logger.info(f"Copying files from {executable_dir} to {opt_dir}")
-        for item in executable_dir.iterdir():
-            if item.is_dir():
-                shutil.copytree(item, opt_dir / item.name)
-            else:
-                shutil.copy2(item, opt_dir / item.name)
-
-        # Set executable permissions
-        (opt_dir / "OpenBoard").chmod(0o755)
-        logger.info("Set executable permissions")
-
-        # Copy desktop file from common directory to SOURCES for spec file reference
+        # RPM creates BUILDROOT during %install. Keep the payload in SOURCES until then.
+        sources = build_root / "SOURCES"
+        shutil.copytree(executable_dir, sources / "OpenBoard")
+        (sources / "OpenBoard" / "OpenBoard").chmod(0o755)
         desktop_src = (
             Path(__file__).parent.parent / "linux" / "common" / "openboard.desktop"
         )
-        if desktop_src.exists():
-            shutil.copy2(desktop_src, build_root / "SOURCES" / "openboard.desktop")
-            # Also copy to buildroot for %files section
-            shutil.copy2(desktop_src, desktop_dir / "openboard.desktop")
-            logger.info("Copied desktop file")
-
-        # Copy icon file to SOURCES and buildroot
+        shutil.copy2(desktop_src, sources / "openboard.desktop")
         icon_src = (
             Path(__file__).parent.parent.parent.parent
             / "assets"
             / "icons"
             / "openboard.png"
         )
-        if icon_src.exists():
-            shutil.copy2(icon_src, build_root / "SOURCES" / "openboard.png")
-            shutil.copy2(icon_src, icon_dir / "openboard.png")
-            logger.info("Copied icon file")
-        else:
-            logger.warning(
-                f"Icon file not found at {icon_src}, skipping icon installation"
-            )
+        shutil.copy2(icon_src, sources / "openboard.png")
 
         # Read and replace version in spec file
         spec_content = spec_template.read_text()
@@ -290,8 +262,6 @@ def build_rpm_package(dist_dir: Path, version: str, output_dir: Path) -> Path | 
                 "-bb",
                 "--define",
                 f"_topdir {build_root}",
-                "--buildroot",
-                str(install_root),
                 str(spec_file),
             ],
             check=True,

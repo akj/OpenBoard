@@ -8,6 +8,5 @@ Exec=/opt/openboard/OpenBoard
 Icon=openboard
 Terminal=false
 Categories=Game;BoardGame;
-MimeType=application/x-chess-pgn;
 Keywords=chess;game;stockfish;accessible;board;pgn;
 StartupNotify=true

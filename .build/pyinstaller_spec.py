@@ -11,6 +11,7 @@ proper handling of all OpenBoard dependencies including:
 """
 
 import platform
+import tomllib
 from pathlib import Path
 
 # PyInstaller imports
@@ -20,103 +21,16 @@ from PyInstaller.building.osx import BUNDLE
 
 # Application metadata
 APP_NAME = "OpenBoard"
-APP_VERSION = "0.1.0"
-ENTRY_POINT = "openboard.views.views:main"
 
 # Platform-specific settings
 IS_WINDOWS = platform.system() == "Windows"
 IS_MACOS = platform.system() == "Darwin"
 IS_LINUX = platform.system() == "Linux"
 
-# Base directory (project root)
-try:
-    BASE_DIR = Path(__file__).parent.parent
-except NameError:
-    # When executed directly, use current working directory assumption
-    BASE_DIR = Path.cwd()
-
-# Hidden imports required for dynamic loading
-# Note: OpenBoard-specific imports are handled by hook-openboard.py
-HIDDEN_IMPORTS = [
-    # wxPython modules that may not be auto-detected
-    "wx",
-    "wx.lib",
-    "wx.lib.newevent",
-    "wx.adv",
-    "wx.grid",
-    "wx.html",
-    "wx.media",
-    "wx.propgrid",
-    "wx.ribbon",
-    "wx.richtext",
-    "wx.stc",
-    "wx.webkit",
-    "wx.xml",
-    # accessible-output3 modules
-    "accessible_output3",
-    "accessible_output3.outputs",
-    "accessible_output3.outputs.auto",
-    "accessible_output3.outputs.base",
-    "accessible_output3.outputs.nvda",
-    "accessible_output3.outputs.jaws",
-    "accessible_output3.outputs.sapi",
-    "accessible_output3.outputs.speechd",
-    "accessible_output3.outputs.voiceover",
-    # Chess library modules
-    "chess",
-    "chess.engine",
-    "chess.polyglot",
-    "chess.pgn",
-    "chess.svg",
-    "chess.syzygy",
-    # Blinker for signals
-    "blinker",
-    # Standard library modules that might be missed
-    "asyncio",
-    "concurrent.futures",
-    "threading",
-    "multiprocessing",
-    "json",
-    "pathlib",
-    "platform",
-    "subprocess",
-    "shutil",
-    # Pydantic for configuration
-    "pydantic",
-    "pydantic.dataclasses",
-    "pydantic.json",
-    "pydantic.types",
-    "pydantic.validators",
-]
-
-# Platform-specific hidden imports
-if IS_WINDOWS:
-    HIDDEN_IMPORTS.extend(
-        [
-            "accessible_output3.outputs.sapi",
-            "accessible_output3.outputs.nvda",
-            "accessible_output3.outputs.jaws",
-            "win32api",
-            "win32con",
-            "win32gui",
-            "winsound",
-        ]
-    )
-elif IS_MACOS:
-    HIDDEN_IMPORTS.extend(
-        [
-            "accessible_output3.outputs.voiceover",
-            "Foundation",
-            "AppKit",
-            "Cocoa",
-        ]
-    )
-elif IS_LINUX:
-    HIDDEN_IMPORTS.extend(
-        [
-            "accessible_output3.outputs.speechd",
-        ]
-    )
+# build.py invokes PyInstaller from the checkout root.
+BASE_DIR = Path.cwd()
+with (BASE_DIR / "pyproject.toml").open("rb") as metadata:
+    APP_VERSION = tomllib.load(metadata)["project"]["version"]
 
 # Data files to include
 DATA_FILES = [
@@ -137,7 +51,7 @@ a = Analysis(
     pathex=[str(BASE_DIR)],
     binaries=[],
     datas=DATA_FILES,
-    hiddenimports=HIDDEN_IMPORTS,
+    hiddenimports=[],
     hookspath=HOOK_DIRS,
     hooksconfig={},
     runtime_hooks=[],
@@ -158,14 +72,11 @@ a = Analysis(
         "PySide6",
         "gtk",
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=None,
     noarchive=False,
 )
 
 # PYZ (Python ZIP archive)
-pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+pyz = PYZ(a.pure)
 
 # Executable configuration
 exe = EXE(
@@ -177,7 +88,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,  # Console mode for accessibility and debugging
     disable_windowed_traceback=False,
     target_arch=None,
@@ -185,17 +96,16 @@ exe = EXE(
     entitlements_file=None,
     # Platform-specific options
     icon=str(BASE_DIR / "assets" / "icons" / "openboard.ico") if IS_WINDOWS else None,
-    version=None,  # TODO: Add version info file for Windows
+    version=None,
 )
 
 # Bundle configuration (for macOS app bundle or Linux directory)
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name=APP_NAME,
 )

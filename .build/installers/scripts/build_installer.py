@@ -69,92 +69,25 @@ def build_for_platform(
         ValueError: If invalid installer type specified
         RuntimeError: If installer build fails
     """
-    created_installers = []
-
-    if platform_name == "windows":
-        # Windows: build Inno Setup installer
-        valid_types = ["innosetup"]
-
-        if installer_types and not all(t in valid_types for t in installer_types):
-            raise ValueError(
-                f"Invalid installer type for Windows. Valid types: {valid_types}"
-            )
-
-        logger.info("Building Windows Inno Setup installer")
-        try:
-            installer_path = build_windows_installer(dist_dir, version, output_dir)
-            created_installers.append(installer_path)
-            logger.info(f"Created: {installer_path}")
-        except Exception as e:
-            logger.error(f"Windows installer build failed: {e}", exc_info=True)
-            raise RuntimeError(f"Windows installer build failed: {e}") from e
-
-    elif platform_name == "macos":
-        # macOS: build DMG installer
-        valid_types = ["dmg"]
-
-        if installer_types and not all(t in valid_types for t in installer_types):
-            raise ValueError(
-                f"Invalid installer type for macOS. Valid types: {valid_types}"
-            )
-
-        logger.info("Building macOS DMG installer")
-        try:
-            installer_path = build_macos_installer(dist_dir, version, output_dir)
-            created_installers.append(installer_path)
-            logger.info(f"Created: {installer_path}")
-        except Exception as e:
-            logger.error(f"macOS installer build failed: {e}", exc_info=True)
-            raise RuntimeError(f"macOS installer build failed: {e}") from e
-
-    elif platform_name == "linux":
-        # Linux: build DEB and/or RPM packages
-        valid_types = ["deb", "rpm"]
-
-        if installer_types:
-            if not all(t in valid_types for t in installer_types):
-                raise ValueError(
-                    f"Invalid installer type for Linux. Valid types: {valid_types}"
-                )
-            build_types = installer_types
-        else:
-            # Build both by default
-            build_types = valid_types
-
-        # Build DEB if requested
-        if "deb" in build_types:
-            logger.info("Building DEB package")
-            try:
-                deb_path = build_deb_package(dist_dir, version, output_dir)
-                created_installers.append(deb_path)
-                logger.info(f"Created: {deb_path}")
-            except Exception as e:
-                logger.error(f"DEB package build failed: {e}", exc_info=True)
-                # Don't raise - continue with RPM if requested
-                if len(build_types) == 1:
-                    # Only DEB requested, so fail
-                    raise RuntimeError(f"DEB package build failed: {e}") from e
-
-        # Build RPM if requested
-        if "rpm" in build_types:
-            logger.info("Building RPM package")
-            try:
-                rpm_path = build_rpm_package(dist_dir, version, output_dir)
-                if rpm_path:
-                    created_installers.append(rpm_path)
-                    logger.info(f"Created: {rpm_path}")
-                else:
-                    logger.warning("RPM package skipped (rpmbuild not available)")
-            except Exception as e:
-                logger.error(f"RPM package build failed: {e}", exc_info=True)
-                # Don't raise if DEB was successful
-                if len(build_types) == 1:
-                    # Only RPM requested, so fail
-                    raise RuntimeError(f"RPM package build failed: {e}") from e
-
-    else:
+    builders_by_platform = {
+        "windows": {"innosetup": build_windows_installer},
+        "macos": {"dmg": build_macos_installer},
+        "linux": {"deb": build_deb_package, "rpm": build_rpm_package},
+    }
+    if platform_name not in builders_by_platform:
         raise ValueError(f"Unknown platform: {platform_name}")
-
+    builders = builders_by_platform[platform_name]
+    requested = installer_types or list(builders)
+    if any(kind not in builders for kind in requested):
+        raise ValueError(
+            f"Invalid installer type for {platform_name}. Valid types: {list(builders)}"
+        )
+    created_installers = []
+    for kind in requested:
+        installer = builders[kind](dist_dir, version, output_dir)
+        if installer is None:
+            raise RuntimeError(f"Requested {kind} installer could not be built")
+        created_installers.append(installer)
     return created_installers
 
 

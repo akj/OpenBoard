@@ -1,17 +1,4 @@
-"""Tests for ChessController behavioral coverage.
-
-Tests all 18 public methods using real Game instances and Mock engine adapters.
-Signal capture via blinker sender pattern eliminates wx dependency. (ref: DL-001)
-
-Each test class covers a functional group: navigation, selection, undo/redo,
-replay, hints, announcements, computer move handling, opening book, FEN loading,
-and computer thinking state.
-
-TestChessControllerAnnouncements verifies all 8 branches of _format_verbose_announcement
-(normal move, capture, kingside castle, queenside castle, en passant, promotion,
-promotion+capture, check/checkmate). If any branch is unreachable via signal testing,
-document it as a known gap. (ref: DL-007)
-"""
+"""Controller behavior using real games, captured signals, and mock engines."""
 
 import inspect
 
@@ -25,13 +12,13 @@ from openboard.engine.engine_adapter import EngineAdapter
 from openboard.models.move_kind import MoveKind
 
 
-def _make_controller(game, config=None):
+def _make_controller(game):
     """Return (controller, signals) with all blinker signals wired to capture lists.
 
     Uses weak=False to ensure named handlers are not garbage collected before
     tests complete. (ref: DL-001)
     """
-    controller = ChessController(game, config=config)
+    controller = ChessController(game)
     signals = {
         "announce": [],
         "board_updated": [],
@@ -148,7 +135,8 @@ class TestChessControllerNavigation:
         self.controller.navigate("up")
         # A2 has a white pawn in starting position
         announcement = self.signals["announce"][-1]
-        assert "pawn" in announcement.lower()
+        assert announcement == "White pawn on a2"
+        assert announcement == self.controller.square_description(chess.A2)
 
     def test_navigate_announces_empty_square(self):
         self.controller.current_square = chess.A2
@@ -283,6 +271,67 @@ class TestChessControllerUndo:
         self.controller.undo()
         assert self.controller._replay_index == 1
 
+    def test_black_human_cannot_undo_computers_opening_move(self):
+        game = Game(
+            config=GameConfig(
+                mode=GameMode.HUMAN_VS_COMPUTER,
+                human_color=chess.BLACK,
+                difficulty=DifficultyLevel.BEGINNER,
+            )
+        )
+        game.apply_move(chess.E2, chess.E4)
+        controller, signals = _make_controller(game)
+        before = game.board_state.board.fen()
+
+        controller.undo()
+
+        assert game.board_state.board.fen() == before
+        assert signals["announce"] == ["Nothing to undo"]
+        controller.focus_square(chess.E7)
+        controller.select()
+        assert controller.selected_square == chess.E7
+
+    def test_undo_preserves_pending_computer_opening_move(self):
+        engine = Mock(spec=EngineAdapter)
+        game = Game(
+            engine_adapter=engine,
+            config=GameConfig(
+                mode=GameMode.HUMAN_VS_COMPUTER,
+                human_color=chess.BLACK,
+                difficulty=DifficultyLevel.BEGINNER,
+            ),
+        )
+        controller, signals = _make_controller(game)
+        controller.start()
+
+        controller.undo()
+
+        assert signals["announce"][-1] == "Nothing to undo"
+        assert controller.is_computer_thinking()
+        engine.get_best_move_async.return_value.cancel.assert_not_called()
+        callback = engine.get_best_move_async.call_args.kwargs["callback"]
+        callback(chess.Move.from_uci("e2e4"))
+        assert not controller.is_computer_thinking()
+        assert not game.is_computer_turn()
+
+    def test_black_human_can_undo_first_move_from_black_to_move_fen(self):
+        game = Game(
+            config=GameConfig(
+                mode=GameMode.HUMAN_VS_COMPUTER,
+                human_color=chess.BLACK,
+                difficulty=DifficultyLevel.BEGINNER,
+            )
+        )
+        fen = chess.STARTING_FEN.replace(" w ", " b ")
+        game.load_fen(fen)
+        game.apply_move(chess.E7, chess.E5)
+        controller, _ = _make_controller(game)
+
+        controller.undo()
+
+        assert game.board_state.board.fen() == fen
+        assert not game.is_computer_turn()
+
 
 class TestChessControllerReplay:
     """Tests for PGN replay functionality."""
@@ -412,26 +461,14 @@ class TestChessControllerAnnouncements:
         self.controller, self.signals = _make_controller(self.game)
         self.signals["announce"].clear()
 
-    def test_toggle_announce_mode_switches_to_brief(self):
-        assert self.controller.announce_mode == "verbose"
-        self.controller.toggle_announce_mode()
-        assert self.controller.announce_mode == "brief"
-
-    def test_toggle_announce_mode_switches_back_to_verbose(self):
-        self.controller.toggle_announce_mode()
-        self.controller.toggle_announce_mode()
-        assert self.controller.announce_mode == "verbose"
-
-    def test_verbose_normal_move_includes_piece_and_squares(self):
-        self.controller.announce_mode = "verbose"
+    def test_normal_move_includes_piece_and_squares(self):
         self.game.board_state.make_move(chess.Move.from_uci("e2e4"))
         ann = self.signals["announce"][-1]
         assert "pawn" in ann.lower()
         assert "e2" in ann.lower()
         assert "e4" in ann.lower()
 
-    def test_verbose_capture_includes_captured_piece_name(self):
-        self.controller.announce_mode = "verbose"
+    def test_capture_includes_captured_piece_name(self):
         self.game.board_state.make_move(chess.Move.from_uci("e2e4"))
         self.game.board_state.make_move(chess.Move.from_uci("d7d5"))
         self.signals["announce"].clear()
@@ -440,8 +477,7 @@ class TestChessControllerAnnouncements:
         ann = self.signals["announce"][-1]
         assert "takes" in ann.lower() or "pawn" in ann.lower()
 
-    def test_verbose_kingside_castling_announcement(self):
-        self.controller.announce_mode = "verbose"
+    def test_kingside_castling_announcement(self):
         fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
@@ -450,8 +486,7 @@ class TestChessControllerAnnouncements:
         ann = self.signals["announce"][-1]
         assert "kingside" in ann.lower()
 
-    def test_verbose_queenside_castling_announcement(self):
-        self.controller.announce_mode = "verbose"
+    def test_queenside_castling_announcement(self):
         fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
@@ -460,8 +495,7 @@ class TestChessControllerAnnouncements:
         ann = self.signals["announce"][-1]
         assert "queenside" in ann.lower()
 
-    def test_verbose_en_passant_announcement(self):
-        self.controller.announce_mode = "verbose"
+    def test_en_passant_announcement(self):
         fen = "rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
@@ -470,8 +504,7 @@ class TestChessControllerAnnouncements:
         ann = self.signals["announce"][-1]
         assert "en passant" in ann.lower()
 
-    def test_verbose_pawn_promotion_announcement(self):
-        self.controller.announce_mode = "verbose"
+    def test_pawn_promotion_announcement(self):
         fen = "8/P7/8/8/8/8/8/4K2k w - - 0 1"
         self.game.board_state.load_fen(fen)
         self.signals["announce"].clear()
@@ -481,8 +514,7 @@ class TestChessControllerAnnouncements:
         assert "promot" in ann.lower()
         assert "queen" in ann.lower()
 
-    def test_verbose_checkmate_includes_winner(self):
-        self.controller.announce_mode = "verbose"
+    def test_checkmate_includes_winner(self):
         # Scholar's mate variant: Qxf7# delivers checkmate
         fen = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4"
         self.game.board_state.load_fen(fen)
@@ -491,23 +523,7 @@ class TestChessControllerAnnouncements:
         ann = self.signals["announce"][-1]
         assert "checkmate" in ann.lower()
 
-    def test_verbose_check_announcement(self):
-        self.controller.announce_mode = "verbose"
-        # After 1.e4 e5 2.Bc4 Bc5 - Bxf7+ gives check
-        fen = "rnbqk1nr/pppp1ppp/8/2b1p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3"
-        self.game.board_state.load_fen(fen)
-        self.game.board_state.make_move(chess.Move.from_uci("c4f7"))
-        ann = self.signals["announce"][-1]
-        assert "check" in ann.lower()
-
-    def test_brief_announcement_format(self):
-        self.controller.announce_mode = "brief"
-        self.game.board_state.make_move(chess.Move.from_uci("e2e4"))
-        ann = self.signals["announce"][-1]
-        assert "e2" in ann and "e4" in ann
-
-    def test_brief_announcement_with_check_suffix(self):
-        self.controller.announce_mode = "brief"
+    def test_check_announcement(self):
         # After 1.e4 e5 2.Bc4 Bc5 - Bxf7+ gives check
         fen = "rnbqk1nr/pppp1ppp/8/2b1p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3"
         self.game.board_state.load_fen(fen)
@@ -529,7 +545,8 @@ class TestChessControllerAnnouncements:
         self.signals["announce"].clear()
         self.controller.announce_legal_moves()
         ann = self.signals["announce"][-1]
-        assert "e3" in ann.lower() or "e4" in ann.lower()
+        assert "White pawn on e2" in ann
+        assert "e3" in ann and "e4" in ann
 
     def test_announce_attacking_pieces_on_square(self):
         # After e4 d5, d5 pawn can be taken by e4 pawn
@@ -540,6 +557,7 @@ class TestChessControllerAnnouncements:
         self.controller.announce_attacking_pieces()
         ann = self.signals["announce"][-1]
         assert "attacked by" in ann.lower()
+        assert "white pawn on e4" in ann
 
     def test_announce_last_move_reconstructs_and_announces(self):
         self.game.board_state.make_move(chess.Move.from_uci("e2e4"))
@@ -561,7 +579,6 @@ class TestChessControllerComputerMove:
         game = _make_hvc_game(self.mock_engine)
         controller, signals = _make_controller(game)
         signals["announce"].clear()
-        controller.announce_mode = "verbose"
         game.computer_move_ready.send(
             game, move=chess.Move.from_uci("e7e5"), source="engine"
         )
@@ -571,7 +588,6 @@ class TestChessControllerComputerMove:
         game = _make_hvc_game(self.mock_engine)
         controller, signals = _make_controller(game)
         signals["announce"].clear()
-        controller.announce_mode = "verbose"
         game.computer_move_ready.send(
             game, move=chess.Move.from_uci("e7e5"), source="book"
         )
@@ -591,12 +607,9 @@ class TestChessControllerComputerMove:
         def on_announce(sender, **kw):
             captured.append(kw.get("text"))
 
-        # Connect to the class-level signal before instantiation to capture init announcements
-        ChessController.announce.connect(on_announce, weak=False)
-        try:
-            ChessController(game)
-        finally:
-            ChessController.announce.disconnect(on_announce)
+        controller = ChessController(game)
+        controller.announce.connect(on_announce, weak=False)
+        controller.start()
         mode_announcements = [ann for ann in captured if ann and "human" in ann.lower()]
         assert len(mode_announcements) > 0
 
@@ -607,11 +620,9 @@ class TestChessControllerComputerMove:
         def on_announce(sender, **kw):
             captured.append(kw.get("text"))
 
-        ChessController.announce.connect(on_announce, weak=False)
-        try:
-            ChessController(game)
-        finally:
-            ChessController.announce.disconnect(on_announce)
+        controller = ChessController(game)
+        controller.announce.connect(on_announce, weak=False)
+        controller.start()
         mode_announcements = [
             ann
             for ann in captured
@@ -632,11 +643,9 @@ class TestChessControllerComputerMove:
         def on_announce(sender, **kw):
             captured.append(kw.get("text"))
 
-        ChessController.announce.connect(on_announce, weak=False)
-        try:
-            ChessController(game)
-        finally:
-            ChessController.announce.disconnect(on_announce)
+        controller = ChessController(game)
+        controller.announce.connect(on_announce, weak=False)
+        controller.start()
         mode_announcements = [
             ann for ann in captured if ann and "computer vs computer" in ann.lower()
         ]
@@ -653,7 +662,6 @@ class TestChessControllerOpeningBook:
 
     def test_load_opening_book_with_valid_path_announces_success(self):
         with patch.object(self.game, "load_opening_book"):
-            self.controller.announce_mode = "verbose"
             self.controller.load_opening_book("/some/path/book.bin")
             assert any(
                 "opening book loaded" in ann.lower() for ann in self.signals["announce"]
@@ -671,8 +679,7 @@ class TestChessControllerOpeningBook:
 
     def test_unload_opening_book_announces_unloaded(self):
         self.game.opening_book = Mock()
-        self.controller.announce_mode = "verbose"
-        with patch.object(self.game, "unload_opening_book"):
+        with patch.object(self.game, "close_opening_book"):
             self.controller.unload_opening_book()
         assert any("unloaded" in ann.lower() for ann in self.signals["announce"])
 
@@ -735,7 +742,9 @@ class TestMoveMadePayload:
         payloads: list[dict] = []
 
         def on_move(sender, move=None, old_board=None, move_kind=None, **kwargs):
-            payloads.append({"move": move, "old_board": old_board, "move_kind": move_kind})
+            payloads.append(
+                {"move": move, "old_board": old_board, "move_kind": move_kind}
+            )
 
         game.move_made.connect(on_move, weak=False)
         payloads.clear()
@@ -784,7 +793,9 @@ class TestMoveMadePayload:
         game.apply_move(chess.D1, chess.H5)
 
         assert len(payloads) == 1
-        assert MoveKind.CHECK in payloads[0]["move_kind"], "CHECK must be set when post-push board.is_check()"
+        assert MoveKind.CHECK in payloads[0]["move_kind"], (
+            "CHECK must be set when post-push board.is_check()"
+        )
         assert MoveKind.CAPTURE not in payloads[0]["move_kind"]
         assert MoveKind.CHECKMATE not in payloads[0]["move_kind"]
 
@@ -807,7 +818,9 @@ class TestMoveMadePayload:
         game.move_made.connect(broad_handler, weak=False)
         game.apply_move(chess.E2, chess.E4)
 
-        assert len(captured) == 1, "Broad-signature subscriber must receive exactly one event"
+        assert len(captured) == 1, (
+            "Broad-signature subscriber must receive exactly one event"
+        )
         assert captured[0] == chess.Move.from_uci("e2e4")
 
 
@@ -909,15 +922,17 @@ class TestPendingOldBoardRemoved:
         it as the sole proof of D-03 compliance.
         """
         source = inspect.getsource(ChessController)
-        assert (
-            "_pending_old_board" not in source
-        ), "TD-03 / D-03: _pending_old_board must not be reintroduced (guardrail)"
+        assert "_pending_old_board" not in source, (
+            "TD-03 / D-03: _pending_old_board must not be reintroduced (guardrail)"
+        )
 
 
 class TestAnnounceAttackingPieces:
     """Verifies TD-04 / CONCERNS.md Bug #3 + Codex MEDIUM board_ref adoption."""
 
-    def test_announce_attacking_pieces_includes_pinned_attacker(self, pinned_attacker_fen):
+    def test_announce_attacking_pieces_includes_pinned_attacker(
+        self, pinned_attacker_fen
+    ):
         """Verifies TD-04 / D-16: rook on e8 attacks white king on e1 — must be named.
 
         Uses the canonical TD-04 fixture from Plan 01: FEN `4r3/8/8/8/8/8/8/4K3 w - - 0 1`.
@@ -936,7 +951,9 @@ class TestAnnounceAttackingPieces:
         controller.current_square = chess.E1
         controller.announce_attacking_pieces()
 
-        assert signals["announce"], "TD-04: announce_attacking_pieces must emit at least one announcement"
+        assert signals["announce"], (
+            "TD-04: announce_attacking_pieces must emit at least one announcement"
+        )
         announcement_text = " ".join(signals["announce"]).lower()
         assert "rook" in announcement_text, (
             f"TD-04: pinned-attacker rook on e8 must be named. Got: {signals['announce']!r}"

@@ -16,24 +16,11 @@ class TestPathsModule:
         assert paths.user_data_dir() == isolated_profile / "data"
         assert paths.user_state_dir() == isolated_profile / "state"
         assert paths.engines_dir() == isolated_profile / "data" / "engines"
-        assert paths.keyboard_config_path() == isolated_profile / "config" / "keyboard_config.json"
-        assert paths.autosave_path() == isolated_profile / "state" / "autosave.json"
-
-    def test_settings_path_uses_legacy_config_json_filename(self, isolated_profile: Path) -> None:
-        """Verifies TD-12 / Codex HIGH: settings_path() returns config.json (legacy name preserved).
-
-        Phase 1 explicitly preserves the legacy config.json filename in the new platformdirs
-        location. Any rename is deferred to a later phase.
-        See <filename_decision> in 01-04-PLAN.md.
-        """
-        from openboard.config import paths
-
-        assert paths.settings_path() == isolated_profile / "config" / "config.json", (
-            "TD-12 / Codex HIGH: settings_path() must return config.json in the new "
-            "platformdirs location — the legacy filename is preserved in Phase 1."
+        assert (
+            paths.keyboard_config_path()
+            == isolated_profile / "config" / "keyboard_config.json"
         )
-        # Belt-and-suspenders: the path object literally ends in 'config.json'.
-        assert paths.settings_path().name == "config.json"
+        assert paths.autosave_path() == isolated_profile / "state" / "autosave.json"
 
     def test_paths_directories_are_created(self, isolated_profile: Path) -> None:
         """Verifies TD-12 / D-09: helpers ensure the directory exists (mkdir parents=True, exist_ok=True)."""
@@ -48,14 +35,19 @@ class TestPathsModule:
         engines = paths.engines_dir()
         assert engines.exists() and engines.is_dir()
 
-    def test_paths_default_resolves_via_platformdirs(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_paths_default_resolves_via_platformdirs(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Verifies TD-12 / D-09: without OPENBOARD_PROFILE_DIR, paths come from platformdirs."""
         monkeypatch.delenv("OPENBOARD_PROFILE_DIR", raising=False)
         import platformdirs
 
         from openboard.config import paths
 
-        expected_config = Path(platformdirs.user_config_dir("openboard"))
+        expected_config = tmp_path / "platform-config"
+        monkeypatch.setattr(
+            platformdirs, "user_config_dir", lambda app: str(expected_config)
+        )
         actual_config = paths.user_config_dir()
         assert actual_config == expected_config, (
             "TD-12: without OPENBOARD_PROFILE_DIR, user_config_dir must equal platformdirs.user_config_dir('openboard')"

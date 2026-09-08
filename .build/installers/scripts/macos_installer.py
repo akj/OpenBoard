@@ -1,9 +1,4 @@
-"""
-macOS DMG installer builder.
-
-This module provides functionality to build macOS DMG installers for OpenBoard
-using either create-dmg tool or hdiutil (built-in macOS tool).
-"""
+"""Build a macOS DMG with the app bundle and an Applications shortcut."""
 
 import logging
 import os
@@ -26,71 +21,6 @@ def verify_macos() -> None:
     """
     if platform.system() != "Darwin":
         raise OSError(f"This script must be run on macOS, not {platform.system()}")
-
-
-def find_create_dmg() -> Path | None:
-    """
-    Find create-dmg command-line tool.
-
-    Returns:
-        Path to create-dmg if found, None otherwise
-    """
-    create_dmg_path = shutil.which("create-dmg")
-    if create_dmg_path:
-        logger.info(f"Found create-dmg in PATH: {create_dmg_path}")
-        return Path(create_dmg_path)
-
-    logger.info("create-dmg not found in PATH")
-    return None
-
-
-def create_dmg_with_create_dmg(app_bundle: Path, dmg_path: Path, version: str) -> None:
-    """
-    Create DMG using create-dmg tool.
-
-    Args:
-        app_bundle: Path to .app bundle
-        dmg_path: Output DMG path
-        version: Version string for volume name
-
-    Raises:
-        RuntimeError: If DMG creation fails
-    """
-    logger.info("Creating DMG using create-dmg tool")
-
-    volume_name = f"OpenBoard {version}"
-
-    command = [
-        "create-dmg",
-        "--volname",
-        volume_name,
-        "--window-size",
-        "600",
-        "400",
-        "--icon-size",
-        "80",
-        "--app-drop-link",
-        "400",
-        "200",
-        str(dmg_path),
-        str(app_bundle),
-    ]
-
-    logger.info(f"Running create-dmg: {' '.join(command)}")
-
-    try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-
-        if result.stdout:
-            logger.info(f"create-dmg output:\n{result.stdout}")
-        if result.stderr:
-            logger.warning(f"create-dmg warnings:\n{result.stderr}")
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"create-dmg failed with exit code {e.returncode}")
-        logger.error(f"stdout: {e.stdout}")
-        logger.error(f"stderr: {e.stderr}")
-        raise RuntimeError(f"create-dmg failed: {e.stderr}") from e
 
 
 def create_dmg_with_hdiutil(app_bundle: Path, dmg_path: Path, version: str) -> None:
@@ -204,17 +134,11 @@ def build_macos_installer(dist_dir: Path, version: str, output_dir: Path) -> Pat
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Define output DMG path
-    dmg_filename = f"OpenBoard-v{version}-macos-x64.dmg"
+    architecture = "arm64" if platform.machine() == "arm64" else "x64"
+    dmg_filename = f"OpenBoard-v{version}-macos-{architecture}.dmg"
     dmg_path = output_dir / dmg_filename
 
-    # Try create-dmg first, fallback to hdiutil
-    create_dmg_tool = find_create_dmg()
-
-    if create_dmg_tool:
-        create_dmg_with_create_dmg(app_bundle, dmg_path, version)
-    else:
-        logger.info("create-dmg not available, using hdiutil fallback")
-        create_dmg_with_hdiutil(app_bundle, dmg_path, version)
+    create_dmg_with_hdiutil(app_bundle, dmg_path, version)
 
     # Verify DMG was created
     if not dmg_path.exists():
