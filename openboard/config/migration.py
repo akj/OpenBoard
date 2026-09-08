@@ -70,7 +70,6 @@ def migrate_legacy_paths() -> None:
     """Migrate legacy cwd-relative files to platformdirs locations once.
 
     Files migrated:
-    - config.json (settings) -> user_config_dir/config.json (filename preserved per Codex HIGH)
     - keyboard_config.json -> user_config_dir/keyboard_config.json
     - engines/ (directory) -> user_data_dir/engines/ — CONDITIONAL (Codex HIGH)
 
@@ -79,7 +78,6 @@ def migrate_legacy_paths() -> None:
     (TD-12 / D-10)
     """
     # Files: simple conditional moves.
-    _migrate_file(Path.cwd() / "config.json", paths.settings_path())
     _migrate_file(Path.cwd() / "keyboard_config.json", paths.keyboard_config_path())
 
     # Engines directory: conditional with no eager mkdir (Codex HIGH).

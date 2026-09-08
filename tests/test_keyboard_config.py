@@ -172,7 +172,6 @@ class TestGameKeyboardConfig:
             KeyAction.REQUEST_HINT,
             KeyAction.REPLAY_PREV,
             KeyAction.REPLAY_NEXT,
-            KeyAction.TOGGLE_ANNOUNCE_MODE,
             KeyAction.ANNOUNCE_LAST_MOVE,
             KeyAction.ANNOUNCE_LEGAL_MOVES,
             KeyAction.ANNOUNCE_ATTACKING_PIECES,
@@ -316,3 +315,28 @@ class TestKeyboardConfigJsonRoundTrip:
     def test_load_from_invalid_json_raises_error(self):
         with pytest.raises(Exception):
             load_keyboard_config_from_json("{invalid json}")
+
+    def test_unknown_action_does_not_discard_custom_bindings(self, caplog):
+        loaded = load_keyboard_config_from_json("""{
+            "bindings": [
+                {"key": "65", "action": "select"},
+                {"key": "84", "action": "removed_action"}
+            ]
+        }""")
+        assert len(loaded.bindings) == 1
+        binding = loaded.find_binding(65)
+        assert binding is not None
+        assert binding.action == KeyAction.SELECT
+        assert "unknown action 'removed_action'" in caplog.text
+
+    def test_only_unknown_actions_fall_back_to_default_bindings(self):
+        loaded = load_keyboard_config_from_json("""{
+            "bindings": [{"key": "84", "action": "removed_action"}]
+        }""")
+        assert loaded.bindings == GameKeyboardConfig().bindings
+
+    def test_malformed_known_binding_still_raises(self):
+        with pytest.raises(ValueError):
+            load_keyboard_config_from_json("""{
+                "bindings": [{"key": "invalid key", "action": "select"}]
+            }""")

@@ -125,7 +125,7 @@ class TestChessControllerOpeningBookIntegration:
             difficulty=DifficultyLevel.INTERMEDIATE,
         )
         game = Game(engine_adapter=self.mock_engine, config=config)
-        controller = ChessController(game, config={"announce_mode": "verbose"})
+        controller = ChessController(game)
 
         announcements = []
 

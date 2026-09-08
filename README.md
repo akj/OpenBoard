@@ -40,7 +40,6 @@ Stockfish is optional for two local players. Use the Engine menu to install it o
 | M | Announce legal moves for the selected piece |
 | A | Announce attackers of the focused square |
 | ] | Repeat the last move |
-| Ctrl+T | Switch brief and verbose announcements |
 | Ctrl+L | Open the move list |
 | F5 / F6 | Previous / next replay move |
 
@@ -50,7 +49,7 @@ On Windows, the board exposes square names, roles, focus, and selection through 
 
 ## Configuration and development
 
-Settings and keyboard overrides live in the platform's user configuration directory. Engines live in the user data directory, and logs in the user state directory. Set `OPENBOARD_PROFILE_DIR` to use a separate profile. Keyboard overrides use `keyboard_config.json`; absent or invalid files fall back to the defaults in [keyboard_config.py](openboard/config/keyboard_config.py).
+Keyboard overrides live in `keyboard_config.json` in the platform's user configuration directory. Engines live in the user data directory, and logs in the user state directory. Set `OPENBOARD_PROFILE_DIR` to use a separate profile. Absent or invalid keyboard files fall back to the defaults in [keyboard_config.py](openboard/config/keyboard_config.py). The loader skips unknown actions with a logged warning and preserves recognized bindings. If every binding has an unknown action, it uses the defaults.
 
 ```sh
 uv run --no-sync pytest

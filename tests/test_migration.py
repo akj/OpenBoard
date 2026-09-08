@@ -1,7 +1,6 @@
 """Tests for openboard/config/migration.py — TD-12 / D-10.
 
 Covers (Codex MEDIUM/HIGH):
-- config.json migration (canonical case)
 - keyboard_config.json migration (NEW MUST-HAVE — Codex MEDIUM)
 - engines-dir migration is CONDITIONAL: no eager mkdir if legacy absent (Codex HIGH)
 - idempotency (second run is silent no-op)
@@ -14,30 +13,16 @@ from pathlib import Path
 import pytest
 
 
-class TestLegacyConfigJsonMigration:
-    """Verifies TD-12 / D-10: legacy config.json relocates."""
+def test_migration_leaves_unused_config_json_untouched(isolated_profile, monkeypatch):
+    monkeypatch.chdir(isolated_profile)
+    legacy_config = isolated_profile / "config.json"
+    legacy_config.write_text("existing user configuration")
+    from openboard.config.migration import migrate_legacy_paths
 
-    def test_one_shot_migration_moves_legacy_config_json(
-        self, isolated_profile: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Verifies D-10: legacy config.json migrates to user_config_dir/config.json on first run.
+    migrate_legacy_paths()
 
-        Codex HIGH: filename is preserved as config.json in the new location (no rename).
-        """
-        monkeypatch.chdir(isolated_profile)  # legacy lookups happen relative to cwd
-        legacy_settings = isolated_profile / "config.json"
-        legacy_settings.write_text(json.dumps({"announcement_mode": "verbose"}))
-
-        from openboard.config import paths
-        from openboard.config.migration import migrate_legacy_paths
-
-        migrate_legacy_paths()
-
-        assert not legacy_settings.exists(), "legacy config.json must be moved away"
-        new_settings = paths.settings_path()
-        assert new_settings.exists()
-        assert new_settings.name == "config.json", "Codex HIGH: filename preserved"
-        assert json.loads(new_settings.read_text()) == {"announcement_mode": "verbose"}
+    assert legacy_config.read_text() == "existing user configuration"
+    assert not (isolated_profile / "config" / "config.json").exists()
 
 
 class TestLegacyKeyboardConfigJsonMigration:
@@ -158,19 +143,19 @@ class TestMigrationIdempotency:
         from openboard.config.migration import migrate_legacy_paths
 
         # New path pre-exists
-        new_settings = paths.settings_path()
-        new_settings.parent.mkdir(parents=True, exist_ok=True)
-        new_settings.write_text('{"new": true}')
+        new_keyboard = paths.keyboard_config_path()
+        new_keyboard.parent.mkdir(parents=True, exist_ok=True)
+        new_keyboard.write_text('{"new": true}')
 
         # Legacy path also exists
-        legacy_settings = isolated_profile / "config.json"
-        legacy_settings.write_text('{"legacy": true}')
+        legacy_keyboard = isolated_profile / "keyboard_config.json"
+        legacy_keyboard.write_text('{"legacy": true}')
 
         migrate_legacy_paths()
 
-        assert legacy_settings.exists(), (
+        assert legacy_keyboard.exists(), (
             "legacy must NOT be moved when new already exists"
         )
-        assert json.loads(new_settings.read_text()) == {"new": True}, (
+        assert json.loads(new_keyboard.read_text()) == {"new": True}, (
             "new path must NOT be clobbered"
         )

@@ -18,7 +18,6 @@ def test_ui_settings_default():
 
     assert ui.square_size == 60
     assert ui.board_size == 480  # 8 * 60
-    assert ui.announcement_mode == "brief"
     assert "P" in ui.piece_unicode
     assert ui.piece_unicode["P"] == "♙"
 
@@ -26,7 +25,7 @@ def test_ui_settings_default():
 def test_ui_settings_validation():
     """Test UISettings validation."""
     # Test valid settings
-    ui = UISettings(square_size=50, announcement_mode="verbose")
+    ui = UISettings(square_size=50)
     settings = Settings(ui=ui)
     settings.validate()  # Should not raise
 
@@ -35,12 +34,6 @@ def test_ui_settings_validation():
     settings_bad = Settings(ui=ui_bad)
     with pytest.raises(ValueError, match="square_size must be positive"):
         settings_bad.validate()
-
-    # Test invalid announcement mode
-    ui_bad2 = UISettings(announcement_mode="invalid")
-    settings_bad2 = Settings(ui=ui_bad2)
-    with pytest.raises(ValueError, match="announcement_mode must be"):
-        settings_bad2.validate()
 
 
 def test_engine_settings_default():

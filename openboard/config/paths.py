@@ -4,10 +4,6 @@ All persistent files in OpenBoard resolve through this module. Tests can
 override the resolution by setting OPENBOARD_PROFILE_DIR in the environment;
 when set, every path is rooted under that directory.
 
-Filename note (Phase 1, Codex HIGH): the canonical settings filename is
-`config.json` — the legacy name is preserved in the new platformdirs location.
-The rename to a different name is DEFERRED.
-(TD-12 / D-09 / D-11)
 """
 
 import os
@@ -88,16 +84,6 @@ def engines_dir() -> Path:
     target_path = user_data_dir() / "engines"
     target_path.mkdir(parents=True, exist_ok=True)
     return target_path
-
-
-def settings_path() -> Path:
-    """Return the canonical settings file path.
-
-    Filename: `config.json` — the legacy name is preserved in the new
-    platformdirs location per Codex HIGH (no rename in Phase 1).
-    (TD-12 / D-09)
-    """
-    return user_config_dir() / "config.json"
 
 
 def keyboard_config_path() -> Path:

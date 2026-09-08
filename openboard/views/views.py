@@ -1,4 +1,3 @@
-import json
 import threading
 import wx
 import chess
@@ -12,7 +11,7 @@ from ..models.game_mode import GameMode, GameConfig
 from ..controllers.chess_controller import ChessController
 from ..logging_config import get_logger, setup_logging
 from ..config.settings import get_settings
-from ..config.paths import keyboard_config_path, settings_path
+from ..config.paths import keyboard_config_path
 from ..config.keyboard_config import (
     GameKeyboardConfig,
     KeyboardCommandHandler,
@@ -368,13 +367,6 @@ class ChessFrame(wx.Frame):
         difficulty_info_item = game_menu.Append(wx.ID_ANY, "&Difficulty Info...")
         menu_bar.Append(game_menu, "&Game")
 
-        # ── Options menu ───────────────────────────────────────────────────────────
-        options_menu = wx.Menu()
-        announce_mode_item = options_menu.Append(
-            wx.ID_ANY, "&Toggle Announce Mode\tCtrl-T"
-        )
-        menu_bar.Append(options_menu, "&Options")
-
         # ── Engine menu ────────────────────────────────────────────────────────────
         engine_menu = wx.Menu()
         install_stockfish_item = engine_menu.Append(wx.ID_ANY, "&Install Stockfish...")
@@ -421,13 +413,6 @@ class ChessFrame(wx.Frame):
         )
         wx.EvtHandler.Bind(
             self, wx.EVT_MENU, self.on_difficulty_info, id=difficulty_info_item.GetId()
-        )
-
-        wx.EvtHandler.Bind(
-            self,
-            wx.EVT_MENU,
-            lambda e: self.controller.toggle_announce_mode(),
-            id=announce_mode_item.GetId(),
         )
 
         wx.EvtHandler.Bind(
@@ -797,9 +782,6 @@ class ChessFrame(wx.Frame):
             KeyAction.REQUEST_BOOK_HINT: lambda: self.controller.request_book_hint(),
             KeyAction.REPLAY_PREV: lambda: self.controller.replay_prev(),
             KeyAction.REPLAY_NEXT: lambda: self.controller.replay_next(),
-            KeyAction.TOGGLE_ANNOUNCE_MODE: lambda: (
-                self.controller.toggle_announce_mode()
-            ),
             KeyAction.SHOW_MOVE_LIST: lambda: self.on_show_move_list(),
             KeyAction.ANNOUNCE_LAST_MOVE: lambda: self.controller.announce_last_move(),
             KeyAction.ANNOUNCE_LEGAL_MOVES: lambda: (
@@ -820,15 +802,8 @@ def main():
 
     migrate_legacy_paths()
     get_settings()
-    try:
-        cfg = json.loads(settings_path().read_text(encoding="utf-8"))
-        if not isinstance(cfg, dict):
-            raise ValueError("Expected a configuration object")
-    except (OSError, ValueError) as error:
-        cfg = {"announce_mode": "verbose"}
-        logger.info("Using default configuration: %s", error)
     app = wx.App(False)
-    controller = ChessController(Game(), config=cfg)
+    controller = ChessController(Game())
     frame = ChessFrame(controller)
     frame.start_engine()
     app.MainLoop()

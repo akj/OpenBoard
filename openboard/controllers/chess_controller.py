@@ -28,11 +28,7 @@ class ChessController:
     user commands, replay, hints, undo, load, etc.
     """
 
-    def __init__(self, game: Game, config: dict | None = None):
-        """
-        :param game: the Game model
-        :param config: e.g. {"announce_mode": "verbose" or "brief"}
-        """
+    def __init__(self, game: Game):
         self.game = game
         self.board_updated = Signal()
         self.square_focused = Signal()
@@ -42,13 +38,9 @@ class ChessController:
         self.hint_ready = Signal()
         self.computer_thinking = Signal()
         self.promotion_requested = Signal()
-        self.config = config or {}
-        self.announce_mode = self.config.get("announce_mode", "verbose")
         self.announce_navigation = True
 
-        logger.info(
-            f"ChessController initialized with announce mode: {self.announce_mode}"
-        )
+        logger.info("ChessController initialized")
 
         # board navigation & selection
         self.current_square: int = chess.A1  # 0
@@ -187,8 +179,7 @@ class ChessController:
 
             # Announce the source of the computer move for accessibility
             source_text = "opening book" if source == "book" else "engine analysis"
-            if self.announce_mode == "verbose":
-                self.announce.send(self, text=f"Computer move from {source_text}")
+            self.announce.send(self, text=f"Computer move from {source_text}")
 
     def continue_computer_game(self):
         """Start the next turn. Views defer this after engine completion."""
@@ -227,7 +218,7 @@ class ChessController:
             self.current_square = square
             self.square_focused.send(self, square=square)
             if self.announce_navigation:
-                self._announce_square(square)
+                self.announce.send(self, text=self.square_description(square))
 
     def select(self):
         """
@@ -367,13 +358,12 @@ class ChessController:
         try:
             self.game.load_opening_book(book_file_path)
             # Provide user feedback for successful loading
-            if self.announce_mode == "verbose":
-                book_name = (
-                    book_file_path.split("/")[-1]
-                    if "/" in book_file_path
-                    else book_file_path
-                )
-                self.announce.send(self, text=f"Opening book loaded: {book_name}")
+            book_name = (
+                book_file_path.split("/")[-1]
+                if "/" in book_file_path
+                else book_file_path
+            )
+            self.announce.send(self, text=f"Opening book loaded: {book_name}")
         except Exception as e:
             # Provide user-friendly error messages
             error_message = str(e)
@@ -394,8 +384,7 @@ class ChessController:
         """
         if self.game.opening_book:
             self.game.close_opening_book()
-            if self.announce_mode == "verbose":
-                self.announce.send(self, text="Opening book unloaded")
+            self.announce.send(self, text="Opening book unloaded")
         else:
             self.announce.send(self, text="No opening book to unload")
 
@@ -513,18 +502,8 @@ class ChessController:
         )
         self.announce.send(self, text=message)
 
-    def toggle_announce_mode(self):
-        """
-        Switches between brief and verbose announcements.
-        """
-        self.announce_mode = "brief" if self.announce_mode == "verbose" else "verbose"
-        self.announce.send(self, text=f"Announce mode: {self.announce_mode}")
-
     def announce_legal_moves(self):
-        """
-        Announce all legal moves for the currently selected piece.
-        Uses current announce_mode (brief/verbose) setting.
-        """
+        """Announce all legal moves for the currently selected piece."""
         if self.selected_square is None:
             self.announce.send(
                 self,
@@ -554,11 +533,7 @@ class ChessController:
             )
             return
 
-        # Format announcement based on mode
-        if self.announce_mode == "brief":
-            announcement = self._format_brief_legal_moves(legal_moves, piece)
-        else:
-            announcement = self._format_verbose_legal_moves(legal_moves, piece)
+        announcement = self._format_legal_moves(legal_moves, piece)
 
         self.announce.send(self, text=announcement)
 
@@ -595,14 +570,7 @@ class ChessController:
             self.announce.send(self, text=f"No pieces are attacking {square_name}")
             return
 
-        if self.announce_mode == "brief":
-            announcement = self._format_brief_attacking_pieces(
-                attacking_pieces, square_name
-            )
-        else:
-            announcement = self._format_verbose_attacking_pieces(
-                attacking_pieces, square_name
-            )
+        announcement = self._format_attacking_pieces(attacking_pieces, square_name)
 
         self.announce.send(self, text=announcement)
 
@@ -645,66 +613,14 @@ class ChessController:
         b = self.game.board_state.board  # copy()
         self.board_updated.send(self, board=b)
 
-    def _announce_square(self, square: int):
-        """
-        When focus moves, we say e.g. "White rook on a1" or just "a1 rook"
-        depending on mode.
-        """
-        b = self.game.board_state.board_ref
-        piece = b.piece_at(square)
-        fname = chess.square_name(square)
-        if piece:
-            color = "White" if piece.color else "Black"
-            name = PIECE_NAMES[piece.piece_type]
-            text = (
-                f"{color} {name} on {fname}"
-                if self.announce_mode == "verbose"
-                else f"{name} {fname}"
-            )
-        else:
-            text = fname
-        self.announce.send(self, text=text)
-
     def _format_move_announcement(
         self, move: chess.Move, old_board: chess.Board | None
     ) -> str:
-        """
-        Builds comprehensive move announcement including game state changes.
-        Covers: basic moves, captures, check, checkmate, castling, en passant, promotion, etc.
+        """Describe a move, captures, special moves, and the resulting game status.
 
-        old_board is the board state BEFORE the move was pushed. It arrives via the
-        BoardState.move_made signal kwarg (D-03) — never reconstructed here.
+        old_board is the position before the move, supplied by the model signal.
         """
         board = self.game.board_state.board
-
-        if self.announce_mode == "brief":
-            return self._format_brief_announcement(move, board, old_board)
-        else:
-            return self._format_verbose_announcement(move, board, old_board)
-
-    def _format_brief_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
-    ) -> str:
-        """Format brief move announcement: 'e2 e4, check'"""
-        src_name = chess.square_name(move.from_square)
-        dst_name = chess.square_name(move.to_square)
-        announcement = f"{src_name} {dst_name}"
-
-        # Add game state suffixes
-        match (board.is_checkmate(), board.is_check(), board.is_stalemate()):
-            case (True, _, _):
-                announcement += ", checkmate"
-            case (False, True, _):
-                announcement += ", check"
-            case (False, False, True):
-                announcement += ", stalemate"
-
-        return announcement
-
-    def _format_verbose_announcement(
-        self, move: chess.Move, board: chess.Board, old_board: chess.Board | None
-    ) -> str:
-        """Format verbose move announcement with full details."""
         src, dst = move.from_square, move.to_square
         fname_src = chess.square_name(src)
         fname_dst = chess.square_name(dst)
@@ -815,27 +731,10 @@ class ChessController:
 
         return ". ".join(announcement_parts)
 
-    def _format_brief_legal_moves(
+    def _format_legal_moves(
         self, legal_moves: list[chess.Move], piece: chess.Piece
     ) -> str:
-        """
-        Format brief legal moves announcement: 'Pawn can move to: e3, e4'
-        """
-        piece_name = PIECE_NAMES[piece.piece_type]
-        destinations = [chess.square_name(move.to_square) for move in legal_moves]
-
-        if len(destinations) == 1:
-            return f"{piece_name} can move to {destinations[0]}"
-        else:
-            dest_list = ", ".join(destinations[:-1]) + f", {destinations[-1]}"
-            return f"{piece_name} can move to: {dest_list}"
-
-    def _format_verbose_legal_moves(
-        self, legal_moves: list[chess.Move], piece: chess.Piece
-    ) -> str:
-        """
-        Format verbose legal moves announcement with move details.
-        """
+        """Describe legal destinations, captures, and special moves."""
         board = self.game.board_state.board
         piece_name = PIECE_NAMES[piece.piece_type]
         color = "White" if piece.color else "Black"
@@ -874,26 +773,10 @@ class ChessController:
             moves_text = "; ".join(move_descriptions)
             return f"{color} {piece_name} on {from_square} can move to: {moves_text}"
 
-    def _format_brief_attacking_pieces(
+    def _format_attacking_pieces(
         self, attacking_pieces: list[tuple[int, chess.Piece]], square_name: str
     ) -> str:
-        """
-        Format brief attacking pieces announcement: 'e4 is attacked by: pawn, knight'
-        """
-        piece_names = [PIECE_NAMES[piece.piece_type] for _, piece in attacking_pieces]
-
-        if len(piece_names) == 1:
-            return f"{square_name} is attacked by {piece_names[0]}"
-        else:
-            pieces_list = ", ".join(piece_names[:-1]) + f", {piece_names[-1]}"
-            return f"{square_name} is attacked by: {pieces_list}"
-
-    def _format_verbose_attacking_pieces(
-        self, attacking_pieces: list[tuple[int, chess.Piece]], square_name: str
-    ) -> str:
-        """
-        Format verbose attacking pieces announcement with piece locations and colors.
-        """
+        """Describe each attacker with its color and square."""
         descriptions = []
 
         for attacking_square, piece in attacking_pieces:

@@ -22,24 +22,6 @@ class TestPathsModule:
         )
         assert paths.autosave_path() == isolated_profile / "state" / "autosave.json"
 
-    def test_settings_path_uses_legacy_config_json_filename(
-        self, isolated_profile: Path
-    ) -> None:
-        """Verifies TD-12 / Codex HIGH: settings_path() returns config.json (legacy name preserved).
-
-        Phase 1 explicitly preserves the legacy config.json filename in the new platformdirs
-        location. Any rename is deferred to a later phase.
-        See <filename_decision> in 01-04-PLAN.md.
-        """
-        from openboard.config import paths
-
-        assert paths.settings_path() == isolated_profile / "config" / "config.json", (
-            "TD-12 / Codex HIGH: settings_path() must return config.json in the new "
-            "platformdirs location — the legacy filename is preserved in Phase 1."
-        )
-        # Belt-and-suspenders: the path object literally ends in 'config.json'.
-        assert paths.settings_path().name == "config.json"
-
     def test_paths_directories_are_created(self, isolated_profile: Path) -> None:
         """Verifies TD-12 / D-09: helpers ensure the directory exists (mkdir parents=True, exist_ok=True)."""
         from openboard.config import paths

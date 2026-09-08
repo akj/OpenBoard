@@ -16,6 +16,8 @@ The boundaries still leave room for future features. Analysis can consume board 
 
 The painted board originally depended on direct speech and exposed no individual squares to native accessibility clients. [BoardAccessible](openboard/views/board_accessibility.py) now represents all 64 squares using the controller's existing focus and selection. It provides names, roles, bounds, focus, selection, and an activation action. Empty squares use just their coordinates. Windows navigation uses native accessibility events; other platforms retain spoken navigation.
 
+The controller uses one announcement format with piece colors, move details, and attacker locations. Square speech shares the description used by native accessibility. The announcement mode setting and toggle are gone, along with their unused settings file reader. Older keyboard override files retain their recognized actions when a removed action appears in the file.
+
 Startup publishes initial state after the frame subscribes. New games clear stale interaction state. Replay preserves a PGN's starting FEN and retains future moves when navigating backward. Promotion uses a chooser and restores board focus after the dialog. Engine startup and installation run on workers so the GUI can respond while they finish.
 
 PGN imports reject unsupported variants before changing the current game or pending work. Undo in a computer game returns control to the human and preserves the computer's opening move until the human has made a move.
@@ -58,7 +60,7 @@ The workflow set now has two files. [CI](.github/workflows/ci.yml) runs lint, ty
 
 ## Verification limits
 
-The Windows test suite passed with 391 tests and two platform-specific skips. Ruff lint and formatting, ty, and actionlint passed. A real Stockfish 19 download, checksum verification, searches, cancellation, and clean subprocess shutdown passed in an isolated profile. A Windows PyInstaller build passed its startup smoke check outside the checkout. Native Windows IAccessible calls verified the board's accessible objects and exposed callback errors that mock tests missed.
+The Windows test suite passed with 389 tests and two platform-specific skips. Ruff lint and formatting, ty, and actionlint passed. A real Stockfish 19 download, checksum verification, searches, cancellation, and clean subprocess shutdown passed in an isolated profile. A Windows PyInstaller build passed its startup smoke check outside the checkout. Native Windows IAccessible calls verified the board's accessible objects and exposed callback errors that mock tests missed.
 
 Actual NVDA speech, braille presentation, and complete game interaction still need a screen reader pass. No live NVDA or audio settings were changed. The PR's CI results provide the platform test and packaging evidence. Installer creation does not establish the installed application's full user flow.
 
