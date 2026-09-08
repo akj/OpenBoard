@@ -9,7 +9,7 @@ dependencies = [
     "blinker>=1.9.0",
     "chess>=1.11.2",
     "platformdirs>=4.11.7",
-    "pydantic>=2.13.3",
+    "pydantic>=2.13.5",
     "wxpython>=4.2.4",
 ]
 
