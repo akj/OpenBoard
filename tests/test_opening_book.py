@@ -7,12 +7,12 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
 import chess
 import chess.polyglot
+import pytest
 
-from openboard.models.opening_book import OpeningBook
 from openboard.exceptions import OpeningBookError
+from openboard.models.opening_book import OpeningBook
 
 
 class TestOpeningBookInitialization:
@@ -261,6 +261,49 @@ class TestOpeningBookMoveRetrieval:
 # Edge case tests
 class TestOpeningBookEdgeCases:
     """Tests for edge cases and error conditions."""
+
+    def test_closing_empty_book_releases_reader(self, tmp_path):
+        path = tmp_path / "empty.bin"
+        path.touch()
+        book = OpeningBook(path)
+        book.close()
+        assert not book.is_loaded
+        assert book.book_file_path is None
+
+    def test_invalid_replacement_preserves_loaded_book(self, tmp_path):
+        valid = tmp_path / "valid.bin"
+        valid.touch()
+        invalid = tmp_path / "invalid.bin"
+        invalid.write_bytes(b"bad")
+        book = OpeningBook(valid)
+        try:
+            with pytest.raises(OpeningBookError):
+                book.load(invalid)
+            assert book.is_loaded
+            assert book.book_file_path == valid
+            assert book.get_move(chess.Board()) is None
+        finally:
+            book.close()
+
+    def test_real_polyglot_book_selects_largest_legal_weight(self, tmp_path):
+        import struct
+
+        board = chess.Board()
+        key = chess.polyglot.zobrist_hash(board)
+        moves = [("e2e4", 10), ("d2d4", 20), ("e2e5", 100)]
+        data = bytearray()
+        for uci, weight in moves:
+            move = chess.Move.from_uci(uci)
+            encoded = move.to_square | move.from_square << 6
+            data.extend(struct.pack(">QHHI", key, encoded, weight, 0))
+        path = tmp_path / "book.bin"
+        path.write_bytes(data)
+        book = OpeningBook(path)
+        try:
+            assert book.get_move(board) == chess.Move.from_uci("d2d4")
+            assert book.get_move(board, minimum_weight=21) is None
+        finally:
+            book.close()
 
     def test_empty_book_file(self):
         """Test handling of empty book files."""

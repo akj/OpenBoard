@@ -1,796 +1,314 @@
-"""
-Integration tests for EngineAdapter thread safety and async behavior.
-These tests verify the thread safety fixes and async patterns work correctly.
-"""
+"""Exercise the real worker loop with a deterministic asynchronous engine."""
 
 import asyncio
 import threading
-import time
-import pytest
-from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import AsyncMock, Mock
+
 import chess
 import chess.engine
+import pytest
 
-from openboard.engine.engine_adapter import EngineAdapter
+from openboard.engine.engine_adapter import CallbackExecutor, EngineAdapter
+from openboard.exceptions import (
+    EngineNotFoundError,
+    EngineProcessError,
+    EngineTimeoutError,
+)
 
 
-class MockEngine:
-    """Mock engine that simulates real async engine behavior."""
-
-    def __init__(self, delay=0.1, should_fail=False, fail_on_configure=False):
+class RecordingEngine:
+    def __init__(self, delay=0):
         self.delay = delay
-        self.should_fail = should_fail
-        self.fail_on_configure = fail_on_configure
-        self.id = {"name": "MockEngine", "version": "1.0"}
-        self.configure_calls = []
-        self.play_calls = []
+        self.calls = []
+        self.loops = []
+        self.active = 0
+        self.max_active = 0
+        self.cancelled = threading.Event()
+        self.entered = threading.Event()
+        self.quit_called = False
 
     async def configure(self, options):
-        self.configure_calls.append(options)
-        if self.fail_on_configure:
-            raise chess.engine.EngineError("Configuration failed")
-        await asyncio.sleep(0.01)  # Small delay to test async
+        self.calls.append(options)
+        self.loops.append(asyncio.get_running_loop())
 
     async def play(self, board, limit):
-        self.play_calls.append((board.fen(), limit))
-        await asyncio.sleep(self.delay)
-
-        if self.should_fail:
-            raise chess.engine.EngineError("Engine computation failed")
-
-        # Return a valid move (e2e4 if legal, or first legal move)
-        legal_moves = list(board.legal_moves)
-        if not legal_moves:
-            return chess.engine.PlayResult(None, None)
-
-        move = (
-            chess.Move.from_uci("e2e4")
-            if chess.Move.from_uci("e2e4") in legal_moves
-            else legal_moves[0]
-        )
-        return chess.engine.PlayResult(move, None)
+        self.calls.append((board, limit))
+        self.loops.append(asyncio.get_running_loop())
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        self.entered.set()
+        try:
+            await asyncio.sleep(self.delay)
+            return chess.engine.PlayResult(next(iter(board.legal_moves), None), None)
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        finally:
+            self.active -= 1
 
     async def quit(self):
-        await asyncio.sleep(0.01)
-
-
-class MockTransport:
-    """Mock transport for subprocess communication."""
-
-    def __init__(self, should_fail_terminate=False):
-        self.should_fail_terminate = should_fail_terminate
-        self._closing = False
-        self._returncode = None
-
-    def is_closing(self):
-        return self._closing
-
-    def get_returncode(self):
-        return self._returncode
-
-    def terminate(self):
-        if self.should_fail_terminate:
-            raise RuntimeError("Failed to terminate")
-        self._returncode = 0
-
-    def kill(self):
-        self._returncode = -9
+        self.loops.append(asyncio.get_running_loop())
+        self.quit_called = True
 
 
 @pytest.fixture
-def mock_engine_path():
-    """Provide a mock engine path."""
-    return "/usr/bin/mock-stockfish"
+def engine_setup(monkeypatch):
+    engine = RecordingEngine()
+    transport = Mock()
+    transport.get_returncode.return_value = None
+    monkeypatch.setattr(
+        chess.engine, "popen_uci", AsyncMock(return_value=(transport, engine))
+    )
+    adapter = EngineAdapter(
+        "test-engine", options={"Hash": 32}, callback_executor=CallbackExecutor()
+    )
+    yield adapter, engine, transport
+    adapter.stop()
 
 
-@pytest.fixture
-def mock_successful_engine():
-    """Create a mock engine that succeeds."""
-    return MockEngine(delay=0.05)
+def test_lifecycle_quits_and_closes_transport_before_loop(engine_setup):
+    adapter, engine, transport = engine_setup
+    adapter.start()
+    worker = adapter._engine_thread
+    loop = adapter._loop
+    transport.close.side_effect = lambda: (
+        pytest.fail("transport closed after loop") if loop.is_closed() else None
+    )
+    assert adapter.get_best_move(chess.Board()) in chess.Board().legal_moves
+    adapter.stop()
+    assert engine.quit_called
+    transport.close.assert_called_once()
+    assert not worker.is_alive()
+    assert loop.is_closed()
+    assert len(set(engine.loops)) == 1
+    assert not adapter.is_running()
+    adapter.stop()
 
 
-@pytest.fixture
-def mock_failing_engine():
-    """Create a mock engine that fails during computation."""
-    return MockEngine(delay=0.05, should_fail=True)
-
-
-class TestEngineAdapterLifecycle:
-    """Test engine lifecycle operations."""
-
-    @patch("chess.engine.popen_uci")
-    def test_engine_start_success(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test successful engine startup."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        # Initially not running
-        assert not adapter.is_running()
-
-        # Start engine
-        adapter.start()
-        assert adapter.is_running()
-
-        # Starting again should be idempotent
-        adapter.start()
-        assert adapter.is_running()
-
-        # Clean up
-        adapter.stop()
-        assert not adapter.is_running()
-
-    @patch("chess.engine.popen_uci")
-    def test_engine_start_failure(self, mock_popen_uci, mock_engine_path):
-        """Test engine startup failure raises a typed engine exception (TD-11 / D-19)."""
-        from openboard.exceptions import EngineNotFoundError
-
-        mock_popen_uci.side_effect = FileNotFoundError("Engine not found")
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        # TD-11 / D-19: FileNotFoundError from popen_uci raises EngineNotFoundError, not bare RuntimeError.
-        with pytest.raises(EngineNotFoundError):
-            adapter.start()
-
-        assert not adapter.is_running()
-
-    @patch("chess.engine.popen_uci")
-    def test_engine_start_timeout(self, mock_popen_uci, mock_engine_path):
-        """Test engine startup timeout raises EngineProcessError (TD-11 / D-19)."""
-        from openboard.exceptions import EngineProcessError
-
-        # Make popen_uci hang indefinitely by returning a coroutine that never completes
-        import asyncio
-
-        async def hanging_coroutine():
-            # This will hang indefinitely
-            await asyncio.sleep(999999)
-
-        mock_popen_uci.return_value = hanging_coroutine()
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        # TD-11 / D-19: startup timeout raises EngineProcessError, not bare RuntimeError.
-        with pytest.raises(EngineProcessError, match="startup failed"):
-            adapter.start()
-
-        assert not adapter.is_running()
-
-    @patch("chess.engine.popen_uci")
-    def test_engine_stop_multiple_calls(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test that multiple stop() calls are safe."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Multiple stops should be safe
-        adapter.stop()
-        adapter.stop()
-        adapter.stop()
-
-        assert not adapter.is_running()
-
-    @patch("chess.engine.popen_uci")
-    def test_engine_configure_options(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test engine option configuration."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        options = {"Threads": 4, "Hash": 128}
-        adapter = EngineAdapter(engine_path=mock_engine_path, options=options)
-        adapter.start()
-
-        # Verify options were configured
-        assert len(mock_successful_engine.configure_calls) == 2
-        assert {"Threads": 4} in mock_successful_engine.configure_calls
-        assert {"Hash": 128} in mock_successful_engine.configure_calls
-
-        adapter.stop()
-
-
-class TestEngineAdapterSynchronous:
-    """Test synchronous engine operations."""
-
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_success(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test successful best move computation."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Test with FEN string
-        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        move = adapter.get_best_move(fen, time_ms=100)
-
-        assert move is not None
-        assert isinstance(move, chess.Move)
-
-        # Test with chess.Board
-        board = chess.Board()
-        move2 = adapter.get_best_move(board, time_ms=100)
-
-        assert move2 is not None
-        assert isinstance(move2, chess.Move)
-
-        # Verify engine was called
-        assert len(mock_successful_engine.play_calls) == 2
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_engine_not_running(self, mock_popen_uci, mock_engine_path):
-        """Test get_best_move when engine is not running."""
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        with pytest.raises(RuntimeError, match="Engine is not running"):
-            adapter.get_best_move(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+def test_concurrent_searches_do_not_cancel_each_other(engine_setup):
+    adapter, engine, _ = engine_setup
+    engine.delay = 0.01
+    with adapter:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            moves = list(
+                pool.map(lambda _: adapter.get_best_move(chess.Board()), range(8))
             )
+    assert all(move in chess.Board().legal_moves for move in moves)
+    assert engine.max_active == 1
+    assert not engine.cancelled.is_set()
 
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_invalid_fen(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test get_best_move with invalid FEN."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
 
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
+def test_board_snapshot_is_taken_before_submission(engine_setup):
+    adapter, engine, _ = engine_setup
+    engine.delay = 0.01
+    board = chess.Board()
+    board.push_uci("e2e4")
+    original = board.copy()
+    with adapter:
+        future = adapter.get_best_move_async(board)
+        board.push_uci("e7e5")
+        assert future.result(timeout=2) in original.legal_moves
+    submitted, _ = engine.calls[-1]
+    assert submitted.fen() == original.fen()
+    assert submitted.move_stack == original.move_stack
 
-        with pytest.raises(RuntimeError, match="Engine failed to compute best move"):
-            adapter.get_best_move("invalid_fen_string", time_ms=100)
 
-        adapter.stop()
+def test_cancel_stops_search_without_notifying_callback(engine_setup):
+    adapter, engine, _ = engine_setup
+    engine.delay = 10
+    callback = Mock()
+    with adapter:
+        future = adapter.get_best_move_async(chess.Board(), callback=callback)
+        assert engine.entered.wait(timeout=2)
+        assert future.cancel()
+        assert engine.cancelled.wait(timeout=2)
+    callback.assert_not_called()
 
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_engine_failure(
-        self, mock_popen_uci, mock_engine_path, mock_failing_engine
-    ):
-        """Test get_best_move when engine computation fails."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_failing_engine)
 
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
+def test_stop_cancels_search_and_quits_process(engine_setup):
+    adapter, engine, transport = engine_setup
+    engine.delay = 10
+    adapter.start()
+    future = adapter.get_best_move_async(chess.Board())
+    assert engine.entered.wait(timeout=2)
+    adapter.stop()
+    assert future.cancelled()
+    assert engine.cancelled.is_set()
+    assert engine.quit_called
+    transport.close.assert_called_once()
 
-        with pytest.raises(RuntimeError, match="Engine failed to compute best move"):
-            adapter.get_best_move(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
+
+def test_async_search_has_a_timeout_and_cancels_engine(engine_setup, monkeypatch):
+    adapter, engine, _ = engine_setup
+    engine.delay = 10
+    monkeypatch.setattr(adapter, "SEARCH_GRACE", 0.01)
+    with adapter:
+        future = adapter.get_best_move_async(chess.Board(), time_ms=1)
+        with pytest.raises(EngineTimeoutError):
+            future.result(timeout=2)
+    assert engine.cancelled.is_set()
+
+
+def test_search_uses_time_and_depth_limits(engine_setup):
+    adapter, engine, _ = engine_setup
+    with adapter:
+        adapter.get_best_move(chess.Board(), time_ms=125, depth=2)
+    _, limit = engine.calls[-1]
+    assert limit.time == 0.125
+    assert limit.depth == 2
+
+
+@pytest.mark.parametrize("position", ["invalid", "8/8/8/8/8/8/8/8 w - - 0 1"])
+def test_invalid_position_never_reaches_engine(engine_setup, position):
+    adapter, engine, _ = engine_setup
+    with adapter:
+        with pytest.raises(ValueError):
+            adapter.get_best_move_async(position)
+    assert engine.calls == [{"Hash": 32}]
+
+
+def test_terminal_position_does_not_start_search(engine_setup):
+    adapter, engine, _ = engine_setup
+    with adapter:
+        assert adapter.get_best_move("4k3/8/8/8/8/8/8/4K3 w - - 0 1") is None
+    assert engine.calls == [{"Hash": 32}]
+
+
+def test_callback_delivers_failure(engine_setup):
+    adapter, engine, _ = engine_setup
+    engine.play = AsyncMock(side_effect=chess.engine.EngineTerminatedError("crashed"))
+    delivered = threading.Event()
+    results = []
+
+    def callback(result):
+        results.append(result)
+        delivered.set()
+
+    with adapter:
+        adapter.get_best_move_async(chess.Board(), callback=callback)
+        assert delivered.wait(timeout=2)
+    assert isinstance(results[0], EngineProcessError)
+
+
+@pytest.mark.asyncio
+async def test_async_context_restarts_without_changing_protocol_loop(engine_setup):
+    adapter, engine, _ = engine_setup
+    caller_loop = asyncio.get_running_loop()
+    for _ in range(2):
+        engine.loops.clear()
+        async with adapter:
+            assert (
+                await adapter.get_best_move_native(chess.Board())
+                in chess.Board().legal_moves
             )
+            loop = adapter._loop
+            assert loop is not caller_loop
+        assert set(engine.loops) == {loop}
+        assert loop.is_closed()
+        assert caller_loop.is_running()
 
-        adapter.stop()
 
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_game_over_position(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test get_best_move with game-over position."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
+@pytest.mark.asyncio
+async def test_async_waiter_cancellation_cancels_worker_search(engine_setup):
+    adapter, engine, _ = engine_setup
+    engine.delay = 10
+    async with adapter:
+        task = asyncio.create_task(adapter.get_best_move_native(chess.Board()))
+        assert await asyncio.to_thread(engine.entered.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await asyncio.to_thread(engine.cancelled.wait, 2)
 
-        adapter = EngineAdapter(engine_path=mock_engine_path)
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (FileNotFoundError("missing"), EngineNotFoundError),
+        (PermissionError("denied"), EngineProcessError),
+    ],
+)
+def test_start_failure_releases_worker(monkeypatch, error, expected):
+    monkeypatch.setattr(chess.engine, "popen_uci", AsyncMock(side_effect=error))
+    adapter = EngineAdapter("missing")
+    with pytest.raises(expected):
         adapter.start()
+    assert not adapter.is_running()
+    assert adapter._engine_thread is None
 
-        # Checkmate position - Scholar's Mate
-        board = chess.Board()
-        # Set up Scholar's Mate position
-        for move_uci in ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"]:
-            move = chess.Move.from_uci(move_uci)
-            if move in board.legal_moves:
-                board.push(move)
 
-        move = adapter.get_best_move(board, time_ms=100)
-        assert move is None  # Should return None for game over positions
+def test_start_timeout_releases_worker(monkeypatch):
+    cancelled = threading.Event()
 
-        adapter.stop()
-
-
-class TestEngineAdapterAsynchronous:
-    """Test asynchronous engine operations."""
-
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_async_success(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test successful async best move computation."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Test async without callback
-        future = adapter.get_best_move_async(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-        )
-        move = future.result(timeout=5.0)
-
-        assert move is not None
-        assert isinstance(move, chess.Move)
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_async_with_callback(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test async best move computation with callback."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Test async with callback
-        callback_results = []
-
-        def callback(result):
-            callback_results.append(result)
-
-        future = adapter.get_best_move_async(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            time_ms=100,
-            callback=callback,
-        )
-
-        # Wait for completion
-        move = future.result(timeout=5.0)
-        time.sleep(0.1)  # Give callback time to execute
-
-        assert move is not None
-        assert len(callback_results) == 1
-        assert callback_results[0] == move
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_get_best_move_async_callback_error_handling(
-        self, mock_popen_uci, mock_engine_path, mock_failing_engine
-    ):
-        """Test async callback error handling."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_failing_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        callback_results = []
-
-        def callback(result):
-            callback_results.append(result)
-
-        future = adapter.get_best_move_async(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            time_ms=100,
-            callback=callback,
-        )
-
-        # Should get exception
-        with pytest.raises(RuntimeError):
-            future.result(timeout=5.0)
-
-        time.sleep(0.1)  # Give callback time to execute
-
-        # Callback should have received the exception
-        assert len(callback_results) == 1
-        assert isinstance(callback_results[0], Exception)
-
-        adapter.stop()
-
-
-class TestEngineAdapterConcurrency:
-    """Test concurrent operations and thread safety."""
-
-    @patch("chess.engine.popen_uci")
-    def test_concurrent_get_best_move_calls(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test multiple concurrent get_best_move calls."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Make concurrent calls
-        futures = []
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for i in range(10):
-                future = executor.submit(
-                    adapter.get_best_move,
-                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                    100,
-                )
-                futures.append(future)
-
-        # All should complete successfully
-        results = [f.result(timeout=10.0) for f in futures]
-
-        assert len(results) == 10
-        assert all(isinstance(move, chess.Move) for move in results)
-
-        # Should have made 10 engine calls
-        assert len(mock_successful_engine.play_calls) == 10
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_concurrent_async_calls(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test multiple concurrent async calls."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Make concurrent async calls
-        futures = []
-        for i in range(10):
-            future = adapter.get_best_move_async(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=50
-            )
-            futures.append(future)
-
-        # All should complete successfully
-        results = []
-        for future in futures:
-            result = future.result(timeout=10.0)
-            results.append(result)
-
-        assert len(results) == 10
-        assert all(isinstance(move, chess.Move) for move in results)
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_start_stop_race_condition(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test concurrent start/stop calls don't cause race conditions."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        # Concurrent start/stop operations
-        def start_stop_worker():
-            for _ in range(5):
-                try:
-                    adapter.start()
-                    time.sleep(0.01)
-                    adapter.stop()
-                    time.sleep(0.01)
-                except Exception:
-                    pass  # Expected during concurrent operations
-
-        threads = [threading.Thread(target=start_stop_worker) for _ in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        # Should end in a clean state
-        adapter.stop()  # Ensure stopped
-        assert not adapter.is_running()
-
-
-class TestEngineAdapterResourceManagement:
-    """Test resource management and cleanup."""
-
-    @patch("chess.engine.popen_uci")
-    def test_resource_cleanup_on_stop(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test that resources are properly cleaned up on stop."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Verify resources are allocated
-        assert adapter._engine is not None
-        assert adapter._transport is not None
-        assert adapter._loop is not None
-        assert adapter._engine_thread is not None
-
-        adapter.stop()
-
-        # Verify resources are cleaned up
-        assert adapter._engine is None
-        assert adapter._transport is None
-        assert adapter._loop is None
-        assert adapter._engine_thread is None
-
-    @patch("chess.engine.popen_uci")
-    def test_active_futures_cleanup(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test that active futures are cancelled on shutdown."""
-        # Use slow engine to test cancellation
-        slow_engine = MockEngine(delay=2.0)
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, slow_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Start a slow operation
-        future = adapter.get_best_move_async(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=2000
-        )
-
-        # Stop should cancel the future
-        adapter.stop()
-
-        # Future should be cancelled or completed quickly
-        time.sleep(0.5)
-        assert future.done()
-
-    @patch("chess.engine.popen_uci")
-    def test_transport_termination_failure(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test graceful handling when transport termination fails."""
-        mock_transport = MockTransport(should_fail_terminate=True)
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # Stop should handle termination failure gracefully
-        adapter.stop()  # Should not raise exception
-
-        assert not adapter.is_running()
-
-
-class TestEngineAdapterStressTest:
-    """Stress tests for thread safety under load."""
-
-    @patch("chess.engine.popen_uci")
-    def test_high_concurrency_stress(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Stress test with high concurrency."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-        adapter.start()
-
-        # High concurrency test
-        futures = []
-
-        def worker():
-            for _ in range(5):
-                future = adapter.get_best_move_async(
-                    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-                    time_ms=10,
-                )
-                futures.append(future)
-
-        threads = [threading.Thread(target=worker) for _ in range(10)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        # All futures should complete successfully
-        completed = 0
-        for future in futures:
-            try:
-                result = future.result(timeout=10.0)
-                if isinstance(result, chess.Move):
-                    completed += 1
-            except Exception:
-                pass  # Some might fail due to high load
-
-        # Most should succeed
-        assert completed >= len(futures) * 0.8  # Allow for some failures under stress
-
-        adapter.stop()
-
-    @patch("chess.engine.popen_uci")
-    def test_memory_leak_detection(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test for memory leaks in repeated start/stop cycles."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        # Repeated start/stop cycles
-        for i in range(20):
-            adapter.start()
-
-            # Make a few calls
-            move = adapter.get_best_move(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=10
-            )
-            assert isinstance(move, chess.Move)
-
-            adapter.stop()
-
-            # Ensure clean state between cycles
-            assert not adapter.is_running()
-            assert adapter._engine is None
-            assert adapter._loop is None
-            assert adapter._engine_thread is None
-
-
-class TestEngineAdapterContextManager:
-    """Test context manager functionality."""
-
-    @patch("chess.engine.popen_uci")
-    def test_context_manager_success(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test sync context manager success path."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        with EngineAdapter(engine_path=mock_engine_path) as adapter:
-            assert adapter.is_running()
-
-            move = adapter.get_best_move(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
-
-    @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_create_managed_factory(
-        self, mock_popen_uci, mock_find_engine, mock_successful_engine
-    ):
-        """Test the create_managed factory method for one-liner context management."""
-        mock_find_engine.return_value = "/usr/bin/mock-stockfish"
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        # One-liner async context manager creation
-        async with EngineAdapter.create_managed("stockfish", {"Threads": 2}) as adapter:
-            assert adapter.is_running()
-
-            move = await adapter.get_best_move_native(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
-
-        # Verify engine detection was called
-        mock_find_engine.assert_called_once_with("stockfish")
-
-        # Verify options were configured
-        assert len(mock_successful_engine.configure_calls) == 1
-        assert {"Threads": 2} in mock_successful_engine.configure_calls
-
-    @patch("chess.engine.popen_uci")
-    def test_context_manager_exception(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test sync context manager cleanup on exception."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = None
+    async def start(*args):
         try:
-            with EngineAdapter(engine_path=mock_engine_path) as adapter:
-                assert adapter.is_running()
-                raise ValueError("Test exception")
-        except ValueError:
-            pass
+            await asyncio.sleep(10)
+        finally:
+            cancelled.set()
 
-        # Should be stopped even after exception
-        assert adapter is not None
-        assert not adapter.is_running()
+    monkeypatch.setattr(chess.engine, "popen_uci", start)
+    adapter = EngineAdapter("hanging")
+    adapter.STARTUP_TIMEOUT = 0.02
+    with pytest.raises(EngineProcessError):
+        adapter.start()
+    assert cancelled.is_set()
+    assert adapter._engine_thread is None
 
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_async_context_manager_success(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test async context manager success path - the preferred pattern."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
 
-        async with EngineAdapter(engine_path=mock_engine_path) as adapter:
-            assert adapter.is_running()
+def test_total_startup_timeout_cleans_up_and_reports_engine_error(engine_setup):
+    adapter, engine, transport = engine_setup
+    adapter.STARTUP_TIMEOUT = 0.2
+    adapter.options = {f"option_{index}": index for index in range(100)}
+    cancelled = threading.Event()
 
-            move = await adapter.get_best_move_native(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
-
-    @patch("openboard.engine.engine_detection.EngineDetector.find_engine")
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_async_context_manager_exception(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test async context manager cleanup on exception - demonstrates robust cleanup."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = None
+    async def configure(options):
         try:
-            async with EngineAdapter(engine_path=mock_engine_path) as adapter:
-                assert adapter.is_running()
-                raise ValueError("Test exception")
-        except ValueError:
-            pass
+            # Each option fits its deadline, but configuring them all exceeds
+            # the caller's total startup budget.
+            await asyncio.sleep(0.02)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
-        # Should be stopped even after exception
-        assert adapter is not None
-        assert not adapter.is_running()
+    engine.configure = configure
+    with pytest.raises(EngineTimeoutError, match="startup"):
+        adapter.start()
+    assert cancelled.is_set()
+    assert engine.quit_called
+    transport.close.assert_called_once()
+    assert adapter._engine_thread is None
+    assert not adapter.is_running()
 
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_async_context_manager_startup_failure(
-        self, mock_popen_uci, mock_engine_path
-    ):
-        """Test async context manager robust cleanup on startup failure."""
-        mock_popen_uci.side_effect = FileNotFoundError("Engine not found")
 
-        adapter = None
+def test_stop_during_startup_waits_then_releases_engine(engine_setup, monkeypatch):
+    adapter, engine, transport = engine_setup
+    launching = threading.Event()
+    release_launch = threading.Event()
+    stopping = threading.Event()
+
+    async def launch(*args):
+        launching.set()
+        while not release_launch.is_set():
+            await asyncio.sleep(0.001)
+        return transport, engine
+
+    def stop():
+        stopping.set()
+        adapter.stop()
+
+    monkeypatch.setattr(chess.engine, "popen_uci", launch)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        started = pool.submit(adapter.start)
         try:
-            async with EngineAdapter(engine_path=mock_engine_path) as adapter:  # noqa: F841
-                # This should never execute
-                assert False, "Should not reach this line"
-        except RuntimeError:
-            # Expected startup failure
-            pass
-
-        # When __aenter__ raises, Python skips the as-clause assignment; adapter stays None.
-        # (ref: DL-004)
-        assert adapter is None
-
-    @patch("chess.engine.popen_uci")
-    @pytest.mark.asyncio
-    async def test_managed_engine_alias(
-        self, mock_popen_uci, mock_engine_path, mock_successful_engine
-    ):
-        """Test the managed_engine convenience method."""
-        mock_transport = MockTransport()
-        mock_popen_uci.return_value = (mock_transport, mock_successful_engine)
-
-        adapter = EngineAdapter(engine_path=mock_engine_path)
-
-        async with adapter.managed_engine() as engine:
-            assert engine is adapter
-            assert engine.is_running()
-
-            move = await engine.get_best_move_native(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", time_ms=100
-            )
-            assert isinstance(move, chess.Move)
-
-        # Should be stopped after context exit
-        assert not adapter.is_running()
+            assert launching.wait(timeout=2)
+            stopped = pool.submit(stop)
+            assert stopping.wait(timeout=2)
+        finally:
+            release_launch.set()
+        started.result(timeout=2)
+        stopped.result(timeout=2)
+    assert engine.quit_called
+    transport.close.assert_called_once()
+    assert adapter._engine_thread is None
+    assert not adapter.is_running()

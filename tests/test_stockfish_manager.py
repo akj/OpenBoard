@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from openboard.engine.stockfish_manager import StockfishManager
 from openboard.engine.downloader import StockfishDownloader
+from openboard.engine.stockfish_manager import StockfishManager
 
 
 class TestStockfishManager(unittest.TestCase):
@@ -156,7 +156,8 @@ class TestStockfishDownloader(unittest.TestCase):
         version = self.downloader.get_latest_version()
         self.assertIsNone(version)
 
-    def test_find_windows_binary_url(self):
+    @patch("platform.machine", return_value="AMD64")
+    def test_find_windows_asset(self, _machine):
         """Test finding Windows binary URL from release data."""
         release_data = {
             "assets": [
@@ -165,7 +166,7 @@ class TestStockfishDownloader(unittest.TestCase):
                     "browser_download_url": "linux_url",
                 },
                 {
-                    "name": "stockfish-windows-x86-64-avx2.zip",
+                    "name": "stockfish-windows-x86-64-universal.zip",
                     "browser_download_url": "windows_url",
                 },
                 {
@@ -175,8 +176,9 @@ class TestStockfishDownloader(unittest.TestCase):
             ]
         }
 
-        url = self.downloader.find_windows_binary_url(release_data)
-        self.assertEqual(url, "windows_url")
+        asset = self.downloader.find_windows_asset(release_data)
+        assert asset is not None
+        self.assertEqual(asset["browser_download_url"], "windows_url")
 
     def test_find_windows_binary_url_not_found(self):
         """Test when no Windows binary is found."""
@@ -193,8 +195,8 @@ class TestStockfishDownloader(unittest.TestCase):
             ]
         }
 
-        url = self.downloader.find_windows_binary_url(release_data)
-        self.assertIsNone(url)
+        asset = self.downloader.find_windows_asset(release_data)
+        self.assertIsNone(asset)
 
 
 class TestEngineDetectionWithLocalInstallation(unittest.TestCase):
@@ -242,15 +244,17 @@ class TestStockfishManagerExceptionBubbleUp(unittest.TestCase):
 
     def test_network_error_bubbles_up_from_downloader(self):
         """Verifies D-19: a NetworkError raised by Downloader propagates to the caller."""
-        from openboard.exceptions import NetworkError
         from openboard.engine.stockfish_manager import StockfishManager
+        from openboard.exceptions import NetworkError
 
         manager = StockfishManager(Path(self.temporary_install_directory))
 
         # Patch to satisfy platform check (install_stockfish requires Windows)
         with patch("platform.system", return_value="Windows"):
             # Patch get_latest_version to avoid a real network call
-            with patch.object(manager.downloader, "get_latest_version", return_value="sf_17"):
+            with patch.object(
+                manager.downloader, "get_latest_version", return_value="sf_17"
+            ):
                 # Patch download_and_install_latest to raise NetworkError from Downloader
                 with patch.object(
                     manager.downloader,

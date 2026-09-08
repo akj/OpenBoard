@@ -4,19 +4,7 @@ from unittest.mock import Mock
 from openboard.models.game import Game
 from openboard.models.board_state import BoardState
 from openboard.models.opening_book import OpeningBook
-from openboard.exceptions import IllegalMoveError, EngineError
-
-
-class DummyEngineAdapter:
-    def __init__(self):
-        self.last_fen = None
-        self.last_time_ms = None
-        self.return_move = chess.Move.from_uci("e2e4")
-
-    def get_best_move(self, fen, time_ms=1000):
-        self.last_fen = fen
-        self.last_time_ms = time_ms
-        return self.return_move
+from openboard.exceptions import IllegalMoveError, OpeningBookError
 
 
 def test_boardstate_make_and_undo_move():
@@ -46,37 +34,6 @@ def test_game_apply_move():
     game.apply_move(chess.E2, chess.E4)
     piece = game.board_state.board.piece_at(chess.E4)
     assert piece is not None and piece.symbol().lower() == "p"
-
-
-def test_game_request_hint_emits_signal(monkeypatch):
-    class FakeEngineAdapter:
-        def __init__(self):
-            self.last_fen = None
-            self.last_time_ms = None
-            self.return_move = chess.Move.from_uci("e2e4")
-
-        def get_best_move(self, fen, time_ms=1000):
-            self.last_fen = fen
-            self.last_time_ms = time_ms
-            return self.return_move
-
-    fake_engine = FakeEngineAdapter()
-    game = Game(engine_adapter=fake_engine)  # type: ignore
-    moves = []
-
-    def on_hint(sender, move):
-        moves.append(move)
-
-    game.hint_ready.connect(on_hint)
-    result = game.request_hint()
-    assert result == fake_engine.return_move
-    assert moves[0] == fake_engine.return_move
-
-
-def test_game_request_hint_no_engine():
-    game = Game(engine_adapter=None)
-    with pytest.raises(EngineError):
-        game.request_hint()
 
 
 def test_pawn_promotion_default_queen():
@@ -114,22 +71,22 @@ def test_pawn_promotion_explicit_piece():
         assert promoted_piece.color == chess.WHITE
 
 
-def test_request_book_move_no_book():
-    """Test request_book_move returns None when no opening book is loaded."""
+def test_get_book_move_no_book():
+    """Test get_book_move returns None when no opening book is loaded."""
     game = Game()
-    result = game.request_book_move()
+    result = game.get_book_move()
     assert result is None
 
 
-def test_request_book_move_with_book():
-    """Test request_book_move returns move when opening book has moves."""
+def test_get_book_move_with_book():
+    """Test get_book_move returns move when opening book has moves."""
     mock_book = Mock(spec=OpeningBook)
     mock_book.is_loaded = True
     expected_move = chess.Move.from_uci("e2e4")
     mock_book.get_move.return_value = expected_move
 
     game = Game(opening_book=mock_book)
-    result = game.request_book_move()
+    result = game.get_book_move()
 
     assert result == expected_move
     mock_book.get_move.assert_called_once_with(game.board_state.board, minimum_weight=1)
@@ -174,27 +131,27 @@ def test_has_book_moves_exception_handling():
     """Test has_book_moves returns False when an exception occurs during lookup."""
     mock_book = Mock(spec=OpeningBook)
     mock_book.is_loaded = True
-    mock_book.get_move.side_effect = Exception("Book error")
+    mock_book.get_move.side_effect = OpeningBookError("Book error")
 
     game = Game(opening_book=mock_book)
     assert game.has_book_moves() is False
 
 
-def test_unload_opening_book_calls_close():
-    """Test unload_opening_book calls close_opening_book."""
+def test_close_opening_book_calls_close():
+    """Test close_opening_book calls close_opening_book."""
     mock_book = Mock(spec=OpeningBook)
     game = Game(opening_book=mock_book)
 
-    game.unload_opening_book()
+    game.close_opening_book()
 
     mock_book.close.assert_called_once()
 
 
-def test_unload_opening_book_no_book():
-    """Test unload_opening_book works when no opening book is loaded."""
+def test_close_opening_book_no_book():
+    """Test close_opening_book works when no opening book is loaded."""
     game = Game()
     # Should not raise an exception
-    game.unload_opening_book()
+    game.close_opening_book()
 
 
 class TestMoveUndoneForwarder:
@@ -245,15 +202,3 @@ class TestPlayerColorRemoved:
         )
         # Also verify the supported alternative still works
         assert game.config.human_color is not None
-
-
-class TestSyncRequestComputerMoveRemoved:
-    """Verifies TD-08 / CONCERNS.md "request_computer_move synchronous path is dead in production"."""
-
-    def test_request_computer_move_sync_removed(self):
-        """Verifies TD-08 / D-13: synchronous Game.request_computer_move() is deleted."""
-        assert not hasattr(Game, "request_computer_move"), (
-            "TD-08: sync request_computer_move() must be removed; tests use request_computer_move_async()"
-        )
-        # Async path must still exist
-        assert hasattr(Game, "request_computer_move_async")

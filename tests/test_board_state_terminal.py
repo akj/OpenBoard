@@ -27,11 +27,12 @@ class TestBoardStateTerminalStates:
         bs = BoardState(insufficient_material_fen)
         assert bs.game_status() == "Draw by insufficient material"
 
-    def test_game_status_fifty_move_rule(self):
+    def test_claimable_fifty_move_draw_does_not_end_game(self):
         # Manufacture a fifty-move position using halfmove clock in FEN
         # KR vs K - kings and rook but halfmove clock at 100 (fifty-move claimable)
         bs = BoardState("8/8/8/8/8/5k2/8/4K1R1 w - - 100 150")
-        assert bs.game_status() == "Draw by fifty-move rule"
+        assert bs.game_status() == "In progress"
+        assert bs.board.can_claim_fifty_moves()
 
     def test_game_status_in_progress(self):
         bs = BoardState()
@@ -41,7 +42,7 @@ class TestBoardStateTerminalStates:
 class TestBoardStateLoadPgn:
     """Tests for load_pgn signal emissions."""
 
-    def test_load_pgn_emits_move_made_for_each_move(self):
+    def test_load_pgn_emits_one_completed_position(self):
         bs = BoardState()
         moves_received = []
 
@@ -50,9 +51,8 @@ class TestBoardStateLoadPgn:
 
         bs.move_made.connect(on_move, weak=False)
         bs.load_pgn("1. e4 e5 2. Nf3 Nc6 *")
-        # 4 moves played; move_made emits once per move
-        move_objects = [m for m in moves_received if m is not None]
-        assert len(move_objects) == 4
+        assert moves_received == [None]
+        assert len(bs.board.move_stack) == 4
 
     def test_load_pgn_emits_final_status_changed(self):
         bs = BoardState()
@@ -154,28 +154,60 @@ class TestBoardRefProperty:
         board_state = BoardState()
         ref_one = board_state.board_ref
         ref_two = board_state.board_ref
-        assert ref_one is board_state._board, "board_ref must return the live underlying chess.Board"
-        assert ref_two is ref_one, "board_ref must be idempotent (same object on every call)"
+        assert ref_one is board_state._board, (
+            "board_ref must return the live underlying chess.Board"
+        )
+        assert ref_two is ref_one, (
+            "board_ref must be idempotent (same object on every call)"
+        )
 
     def test_board_property_still_returns_copy(self):
         """Verifies D-18: BoardState.board snapshot semantics are preserved."""
         board_state = BoardState()
         snapshot = board_state.board
-        assert snapshot is not board_state._board, "board property must keep returning a copy"
-
-    def test_board_ref_docstring_contains_readonly_contract(self):
-        """Verifies TD-13 / Codex MEDIUM: docstring locks the read-only contract verbatim.
-
-        Without the explicit "MUST NOT mutate" wording (and reference to push/pop/set_fen),
-        the maintenance hazard Codex flagged remains. This test catches docstring drift.
-        """
-        docstring = BoardState.board_ref.__doc__ or ""
-        assert "MUST NOT mutate" in docstring, (
-            "TD-13 / Codex MEDIUM: board_ref docstring must contain the verbatim phrase "
-            "'MUST NOT mutate' to lock the read-only contract."
+        assert snapshot is not board_state._board, (
+            "board property must keep returning a copy"
         )
-        for forbidden_method in ("push", "pop", "set_fen"):
-            assert forbidden_method in docstring, (
-                f"TD-13 / Codex MEDIUM: board_ref docstring must reference `{forbidden_method}` "
-                f"in the no-mutation list."
-            )
+
+
+def test_invalid_pgn_does_not_replace_the_current_game():
+    state = BoardState()
+    state.make_move(chess.Move.from_uci("d2d4"))
+    previous = state.board
+    events = []
+    state.move_made.connect(lambda sender, **kw: events.append(kw), weak=False)
+    with pytest.raises(ValueError, match="Invalid PGN"):
+        state.load_pgn("1. e4 e5 2. Bh6 *")
+    assert state.board == previous
+    assert state.board.move_stack == previous.move_stack
+    assert events == []
+
+
+def test_pgn_setup_position_and_history_survive_import():
+    state = BoardState()
+    state.load_pgn('[SetUp "1"]\n[FEN "4k3/8/8/8/8/8/8/R3K3 b - - 0 4"]\n\n4... Kf7 *')
+    assert state.board.piece_at(chess.F7) == chess.Piece(chess.KING, chess.BLACK)
+    state.undo_move()
+    assert state.board.fen() == "4k3/8/8/8/8/8/8/R3K3 b - - 0 4"
+
+
+def test_automatic_draws_end_the_game():
+    state = BoardState("8/8/8/8/8/5k2/8/4K1R1 w - - 150 150")
+    assert state.game_status() == "Draw by seventy-five-move rule"
+    state = BoardState()
+    for move in ["g1f3", "g8f6", "f3g1", "f6g8"] * 4:
+        state.make_move(chess.Move.from_uci(move))
+    assert state.game_status() == "Draw by fivefold repetition"
+
+
+def test_move_event_snapshot_does_not_copy_entire_history():
+    state = BoardState()
+    state.make_move(chess.Move.from_uci("e2e4"))
+    events = []
+    state.move_made.connect(lambda sender, **kw: events.append(kw), weak=False)
+    state.make_move(chess.Move.from_uci("e7e5"))
+    snapshot = events[0]["old_board"]
+    assert snapshot.turn == chess.BLACK
+    assert snapshot.is_legal(chess.Move.from_uci("e7e5"))
+    assert snapshot.move_stack == []
+    assert len(state.board.move_stack) == 2

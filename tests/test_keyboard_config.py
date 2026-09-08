@@ -10,12 +10,12 @@ imports successfully in the test environment. (ref: DL-003)
 import pytest
 
 from openboard.config.keyboard_config import (
-    KeyBinding,
-    KeyAction,
-    KeyModifier,
-    GameKeyboardConfig,
     DialogKeyboardConfig,
+    GameKeyboardConfig,
+    KeyAction,
+    KeyBinding,
     KeyboardCommandHandler,
+    KeyModifier,
     load_keyboard_config_from_json,
     save_keyboard_config_to_json,
 )
@@ -27,6 +27,17 @@ class TestKeyBindingMatches:
     Each parametrize case covers one modifier value across its four input states
     (matching, plus three rejects with extra modifiers). (ref: DL-003)
     """
+
+    @pytest.mark.parametrize(
+        "key", ["wx.WXK_MISSING", "ord('AB')", "ord('')", "banana", "ord(H)"]
+    )
+    def test_invalid_key_rejected_before_handling_events(self, key):
+        import json
+
+        with pytest.raises(ValueError):
+            load_keyboard_config_from_json(
+                json.dumps({"bindings": [{"key": key, "action": "select"}]})
+            )
 
     @pytest.mark.parametrize(
         "shift,ctrl,alt,expected",

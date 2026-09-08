@@ -307,9 +307,10 @@ class MoveListDialog(wx.Dialog):
         self,
         parent,
         move_list: list[chess.Move],
-        current_position: int = -1,
+        current_position: int | None = None,
         allow_navigation: bool = True,
         is_ongoing_game: bool = False,
+        start_board: chess.Board | None = None,
     ):
         super().__init__(
             parent,
@@ -320,7 +321,10 @@ class MoveListDialog(wx.Dialog):
 
         self.move_list = move_list
         self.current_position = (
-            current_position if current_position >= 0 else len(move_list) - 1
+            len(move_list) - 1 if current_position is None else current_position
+        )
+        self.start_board = (
+            start_board.copy() if start_board is not None else chess.Board()
         )
         self.selected_position = self.current_position
         self.allow_navigation = allow_navigation
@@ -353,7 +357,9 @@ class MoveListDialog(wx.Dialog):
 
         # Move list control
         self.list_ctrl = wx.ListCtrl(
-            self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES
+            self,
+            style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES,
+            name="Game moves",
         )
 
         # Add columns
@@ -442,12 +448,13 @@ class MoveListDialog(wx.Dialog):
         # Clear existing items
         self.list_ctrl.DeleteAllItems()
 
-        # Add each half-move as a separate row
+        board = self.start_board.copy()
         for i, move in enumerate(self.move_list):
-            move_num = (i // 2) + 1
-            is_white = i % 2 == 0
+            move_num = board.fullmove_number
+            is_white = board.turn == chess.WHITE
             color = "White" if is_white else "Black"
-            move_str = str(move)
+            move_str = board.san(move)
+            board.push(move)
 
             # Create position description
             if is_white:
@@ -477,7 +484,9 @@ class MoveListDialog(wx.Dialog):
             row = self.selected_position
             if row < self.list_ctrl.GetItemCount():
                 self.list_ctrl.SetItemState(
-                    row, wx.LIST_STATE_SELECTED, wx.LIST_STATE_SELECTED
+                    row,
+                    wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
+                    wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED,
                 )
                 self.list_ctrl.EnsureVisible(row)
 
@@ -608,9 +617,10 @@ class MoveListDialog(wx.Dialog):
 def show_move_list_dialog(
     parent,
     move_list: list[chess.Move],
-    current_position: int = -1,
+    current_position: int | None = None,
     allow_navigation: bool = True,
     is_ongoing_game: bool = False,
+    start_board: chess.Board | None = None,
 ) -> int | None:
     """
     Show the move list dialog and return the selected position.
@@ -626,7 +636,12 @@ def show_move_list_dialog(
         Selected position if OK was clicked, None if cancelled.
     """
     with MoveListDialog(
-        parent, move_list, current_position, allow_navigation, is_ongoing_game
+        parent,
+        move_list,
+        current_position,
+        allow_navigation,
+        is_ongoing_game,
+        start_board,
     ) as dialog:
         if dialog.ShowModal() == wx.ID_OK:
             return dialog.get_selected_position()

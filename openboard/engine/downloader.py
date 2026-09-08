@@ -3,21 +3,20 @@
 import hashlib
 import json
 import logging
-import os
 import platform
 import ssl
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..config.paths import engines_dir
 from ..exceptions import DownloadError, NetworkError
 
 logger = logging.getLogger(__name__)
 
-# Module-level SSL context: explicit CERT_REQUIRED for all HTTPS downloads.
-# Codex LOW one-line acceptance: all urlopen calls pass context=SSL_CONTEXT (TD-13 / D-21 / Security #3).
 SSL_CONTEXT = ssl.create_default_context()
 
 
@@ -30,23 +29,15 @@ class StockfishDownloader:
     )
     LATEST_RELEASE_URL = f"{GITHUB_API_URL}/latest"
 
-    # Windows binary patterns
-    WINDOWS_BINARY_PATTERNS = [
-        "stockfish-windows-x86-64-avx2.zip",
-        "stockfish-windows-x86-64-sse41-popcnt.zip",
-        "stockfish-windows-x86-64-ssse3.zip",
-        "stockfish-windows-x86-64.zip",
-    ]
-
     def __init__(self, install_dir: Path | None = None):
         """
         Initialize the downloader.
 
         Args:
-            install_dir: Directory to install Stockfish. Defaults to <cwd>/engines
+            install_dir: Directory to install Stockfish. Defaults to the user data directory.
         """
         if install_dir is None:
-            install_dir = Path.cwd() / "engines"
+            install_dir = engines_dir()
 
         self.install_dir = install_dir
         self.stockfish_dir = install_dir / "stockfish"
@@ -54,7 +45,7 @@ class StockfishDownloader:
         self._logger = logging.getLogger(__name__)
 
         # Ensure directories exist
-        self.install_dir.mkdir(exist_ok=True)
+        self.install_dir.mkdir(parents=True, exist_ok=True)
         self.stockfish_dir.mkdir(exist_ok=True)
         self.downloads_dir.mkdir(exist_ok=True)
 
@@ -93,24 +84,23 @@ class StockfishDownloader:
 
         return None
 
-    def find_windows_binary_url(self, release_data: dict[str, Any]) -> str | None:
-        """
-        Find the best Windows binary download URL from release assets.
-
-        Args:
-            release_data: GitHub release data
-
-        Returns:
-            Download URL or None if not found
-        """
+    def find_windows_asset(self, release_data: dict[str, Any]) -> dict[str, Any] | None:
+        """Select the universal Windows binary for this machine's architecture."""
         assets = release_data.get("assets", [])
-
-        # Try to find the best binary in order of preference
-        for pattern in self.WINDOWS_BINARY_PATTERNS:
+        machine = platform.machine().lower()
+        if machine in {"arm64", "aarch64"}:
+            names = ["stockfish-windows-arm64-universal.zip"]
+        elif machine in {"amd64", "x86_64"}:
+            names = [
+                "stockfish-windows-x86-64-universal.zip",
+                "stockfish-windows-x86-64.zip",
+            ]
+        else:
+            return None
+        for name in names:
             for asset in assets:
-                if pattern in asset.get("name", "").lower():
-                    return asset.get("browser_download_url")
-
+                if name == asset.get("name", "").lower():
+                    return asset
         return None
 
     def download_file(
@@ -120,15 +110,7 @@ class StockfishDownloader:
         progress_callback: Callable[[int, int], None] | None = None,
         expected_sha256: str | None = None,
     ) -> bool:
-        """Download a file over HTTPS with explicit SSL context and optional SHA-256 verification.
-
-        If expected_sha256 is provided, the downloaded archive's hash is verified after the
-        write completes; on mismatch, the partial file is deleted and DownloadError is raised.
-        If expected_sha256 is None, a DEBUG log records the integrity gap (Codex MEDIUM — not WARN
-        per Plan revision; the operator-visible announcement is a single startup INFO from
-        StockfishManager). Stockfish releases publish no per-asset checksums, so callers
-        currently always pass None — this is the documented v1 baseline per RESEARCH.md Pitfall 5.
-        (TD-13 / D-21)
+        """Download to a temporary file, verify it, then replace the destination.
 
         Args:
             url: URL to download from
@@ -143,6 +125,7 @@ class StockfishDownloader:
             DownloadError: On SHA-256 mismatch or OS-level write failure
             NetworkError: On network-level failure (URLError, HTTPError)
         """
+        partial_path = None
         try:
             request = Request(url)
             request.add_header("User-Agent", "OpenBoard Chess GUI")
@@ -152,7 +135,10 @@ class StockfishDownloader:
                 total_size = int(response.getheader("Content-Length", "0") or 0)
                 downloaded_bytes = 0
 
-                with open(dest_path, "wb") as output_file:
+                with tempfile.NamedTemporaryFile(
+                    dir=dest_path.parent, prefix=f".{dest_path.name}.", delete=False
+                ) as output_file:
+                    partial_path = Path(output_file.name)
                     while True:
                         chunk = response.read(8192)  # 8KB chunks
                         if not chunk:
@@ -163,22 +149,22 @@ class StockfishDownloader:
                         if progress_callback is not None and total_size > 0:
                             progress_callback(downloaded_bytes, total_size)
 
+            if total_size and downloaded_bytes != total_size:
+                raise DownloadError(url, "Download ended before the full file arrived")
+
             if expected_sha256 is not None:
                 actual_hash = sha.hexdigest()
                 if actual_hash != expected_sha256.lower():
-                    dest_path.unlink(missing_ok=True)
                     raise DownloadError(
                         url,
                         f"sha256 mismatch: expected {expected_sha256}, got {actual_hash}",
                     )
             else:
-                # Codex MEDIUM: DEBUG per-download (not WARN). The operator-visible signal is
-                # a single INFO at StockfishManager startup (see stockfish_manager.py __init__).
-                # Stockfish releases publish no per-asset checksums (RESEARCH.md Pitfall 5).
                 self._logger.debug(
                     f"No SHA-256 provided for {url}; downloaded file integrity NOT verified for this download."
                 )
 
+            partial_path.replace(dest_path)
             self._logger.info(f"Downloaded {dest_path.name} ({downloaded_bytes} bytes)")
             return True
 
@@ -186,14 +172,12 @@ class StockfishDownloader:
             raise NetworkError(f"Network failure downloading {url}", str(exc)) from exc
         except OSError as exc:
             raise DownloadError(url, str(exc)) from exc
+        finally:
+            if partial_path is not None:
+                partial_path.unlink(missing_ok=True)
 
     def extract_zip(self, zip_path: Path, extract_to: Path) -> bool:
-        """Extract a ZIP with per-member path-traversal validation.
-
-        Per CPython docs (RESEARCH.md / D-21), zipfile.extractall does NOT sanitise
-        filenames against the extract dir — `..` path components can escape. This guard
-        resolves each member path and rejects any that lie outside extract_to.
-        (TD-13 / D-21 / Security #2)
+        """Validate every ZIP member before extracting any files.
 
         Args:
             zip_path: Path to ZIP file
@@ -210,8 +194,7 @@ class StockfishDownloader:
                 extract_root = Path(extract_to).resolve()
                 for member in archive.infolist():
                     target = (extract_root / member.filename).resolve()
-                    common_root = os.path.commonpath([str(extract_root), str(target)])
-                    if common_root != str(extract_root):
+                    if not target.is_relative_to(extract_root):
                         raise DownloadError(
                             str(zip_path),
                             f"refusing to extract: {member.filename!r} escapes extract dir",
@@ -287,6 +270,8 @@ class StockfishDownloader:
             if progress_callback:
                 progress_callback(message, current, total)
 
+        temporary_install = None
+        preserve_previous = False
         try:
             update_progress("Fetching latest version info...")
 
@@ -305,14 +290,16 @@ class StockfishDownloader:
             update_progress(f"Found version {version}")
 
             # Find Windows binary URL
-            download_url = self.find_windows_binary_url(release_data)
-            if not download_url:
+            asset = self.find_windows_asset(release_data)
+            if asset is None:
                 self._logger.error("No compatible Windows binary found")
                 return False
 
-            # Download the binary
-            filename = download_url.split("/")[-1]
-            download_path = self.downloads_dir / filename
+            download_url = asset["browser_download_url"]
+            digest = asset.get("digest") or ""
+            expected_sha256 = digest.removeprefix("sha256:")
+            if not digest.startswith("sha256:") or len(expected_sha256) != 64:
+                raise DownloadError(download_url, "Release asset has no SHA-256 digest")
 
             update_progress("Downloading Stockfish...", 0, 100)
 
@@ -321,56 +308,62 @@ class StockfishDownloader:
                     percent = int((downloaded / total) * 100)
                     update_progress(f"Downloading... {percent}%", downloaded, total)
 
-            if not self.download_file(download_url, download_path, download_progress):
-                return False
+            temporary_install = tempfile.TemporaryDirectory(
+                dir=self.downloads_dir, ignore_cleanup_errors=True, delete=False
+            )
+            with temporary_install as staging:
+                staging_dir = Path(staging)
+                download_path = staging_dir / "stockfish.zip"
+                self.download_file(
+                    download_url,
+                    download_path,
+                    download_progress,
+                    expected_sha256=expected_sha256,
+                )
+                update_progress("Extracting files...")
+                temp_extract = staging_dir / "extracted"
+                self.extract_zip(download_path, temp_extract)
+                update_progress("Locating executable...")
+                exe_path = self.find_stockfish_executable(temp_extract)
+                if exe_path is None:
+                    raise DownloadError(
+                        download_url, "No Stockfish executable in archive"
+                    )
 
-            # Extract the archive
-            update_progress("Extracting files...")
-            temp_extract = self.downloads_dir / "temp_extract"
-            temp_extract.mkdir(exist_ok=True)
+                candidate = staging_dir / "installation"
+                (candidate / "bin").mkdir(parents=True)
+                exe_path.replace(candidate / "bin" / "stockfish.exe")
+                (candidate / "version.txt").write_text(version, encoding="utf-8")
+                metadata = {
+                    "version": version,
+                    "download_url": download_url,
+                    "executable_path": str(
+                        self.stockfish_dir / "bin" / "stockfish.exe"
+                    ),
+                    "sha256": expected_sha256,
+                }
+                (candidate / "metadata.json").write_text(
+                    json.dumps(metadata, indent=2), encoding="utf-8"
+                )
 
-            if not self.extract_zip(download_path, temp_extract):
-                return False
-
-            # Find the executable
-            update_progress("Locating executable...")
-            exe_path = self.find_stockfish_executable(temp_extract)
-            if not exe_path:
-                self._logger.error("Could not find Stockfish executable in archive")
-                return False
-
-            # Move executable to final location
-            final_exe_path = self.stockfish_dir / "bin" / "stockfish.exe"
-            final_exe_path.parent.mkdir(exist_ok=True)
-
-            if final_exe_path.exists():
-                final_exe_path.unlink()  # Remove old version
-
-            exe_path.replace(final_exe_path)
-
-            # Save version info
-            version_file = self.stockfish_dir / "version.txt"
-            version_file.write_text(version)
-
-            # Save metadata
-            metadata = {
-                "version": version,
-                "download_url": download_url,
-                "installed_at": str(Path.cwd()),
-                "executable_path": str(final_exe_path),
-            }
-
-            metadata_file = self.stockfish_dir / "metadata.json"
-            metadata_file.write_text(json.dumps(metadata, indent=2))
-
-            # Cleanup
-            try:
-                import shutil
-
-                shutil.rmtree(temp_extract)
-                download_path.unlink()
-            except Exception as error:
-                self._logger.warning(f"Cleanup failed: {error}")
+                # Keep the prior installation until the binary and metadata are ready.
+                previous = staging_dir / "previous"
+                had_previous = self.stockfish_dir.exists()
+                if had_previous:
+                    self.stockfish_dir.replace(previous)
+                try:
+                    candidate.replace(self.stockfish_dir)
+                except OSError:
+                    if had_previous:
+                        try:
+                            previous.replace(self.stockfish_dir)
+                        except OSError as error:
+                            preserve_previous = True
+                            raise DownloadError(
+                                download_url,
+                                f"Could not restore the previous installation. It is preserved at {previous}",
+                            ) from error
+                    raise
 
             update_progress("Installation complete!", 100, 100)
             self._logger.info(f"Successfully installed Stockfish {version}")
@@ -380,6 +373,9 @@ class StockfishDownloader:
             self._logger.error(f"Installation failed: {error}")
             update_progress(f"Installation failed: {error}")
             return False
+        finally:
+            if temporary_install is not None and not preserve_previous:
+                temporary_install.cleanup()
 
     def get_installed_executable_path(self) -> Path | None:
         """

@@ -9,57 +9,31 @@ from ..engine.stockfish_manager import StockfishManager
 logger = logging.getLogger(__name__)
 
 
-class EngineProgressDialog(wx.ProgressDialog):
-    """
-    Progress dialog for engine installation/update operations.
-    """
+class EngineProgressDialog(wx.Dialog):
+    """Modal progress for an installation that cannot be cancelled safely."""
 
     def __init__(self, parent, title: str, message: str):
         super().__init__(
-            title=title,
-            message=message,
-            maximum=100,
-            parent=parent,
-            style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL | wx.PD_CAN_ABORT | wx.PD_SMOOTH,
+            parent, title=title, style=wx.DEFAULT_DIALOG_STYLE & ~wx.CLOSE_BOX
         )
+        self.message = wx.StaticText(self, label=message)
+        self.gauge = wx.Gauge(self, range=100, name="Installation progress")
+        layout = wx.BoxSizer(wx.VERTICAL)
+        layout.Add(self.message, 0, wx.ALL | wx.EXPAND, 12)
+        layout.Add(self.gauge, 0, wx.ALL | wx.EXPAND, 12)
+        self.SetSizerAndFit(layout)
+        self.Bind(wx.EVT_CLOSE, self._on_close)
 
-        self.was_cancelled = False
-        self._is_showing_modal = False
-
-    def ShowModal(self):
-        """Override ShowModal to track modal state."""
-        try:
-            self._is_showing_modal = True
-            return super().ShowModal()
-        finally:
-            self._is_showing_modal = False
-
-    def EndModal(self, retCode):
-        """Override EndModal to safely handle state."""
-        if self._is_showing_modal:
-            self._is_showing_modal = False
-            super().EndModal(retCode)
+    def _on_close(self, event):
+        if event.CanVeto():
+            event.Veto()
         else:
-            logger.warning("EndModal called on non-modal dialog, ignoring")
+            event.Skip()
 
     def update_progress(self, current: int, message: str | None = None):
-        """Update progress and optionally change message."""
-        try:
-            if message:
-                continue_flag, skip_flag = self.Update(current, message)
-            else:
-                continue_flag, skip_flag = self.Update(current)
-
-            # Check if user cancelled
-            if not continue_flag:
-                self.was_cancelled = True
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.warning(f"Progress dialog update failed: {e}")
-            return False
+        self.gauge.SetValue(max(0, min(current, 100)))
+        if message:
+            self.message.SetLabel(message)
 
 
 class EngineStatusDialog(wx.Dialog):
@@ -84,7 +58,10 @@ class EngineStatusDialog(wx.Dialog):
         status_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Stockfish Status")
 
         self.status_text = wx.TextCtrl(
-            self, style=wx.TE_MULTILINE | wx.TE_READONLY, size=wx.Size(500, 200)
+            self,
+            style=wx.TE_MULTILINE | wx.TE_READONLY,
+            size=wx.Size(500, 200),
+            name="Stockfish status",
         )
         status_box.Add(self.status_text, 1, wx.EXPAND | wx.ALL, 5)
 
@@ -112,76 +89,29 @@ class EngineStatusDialog(wx.Dialog):
         self.Bind(wx.EVT_BUTTON, self._on_close, close_btn)
 
     def _update_status(self):
-        """Update the status display."""
+        """Show installed engines without waiting for a network request."""
         status = self.manager.get_status()
-
-        lines = ["=== Stockfish Engine Status ===\n"]
-
-        # Platform support
-        if status["platform_supported"]:
-            lines.append("✓ Platform: Windows (automatic installation supported)")
-        else:
-            lines.append(
-                f"⚠ Platform: {status.get('platform', 'Unknown')} (manual installation required)"
-            )
-
-        lines.append("")
-
-        # System installation
+        lines = []
         if status["system_installed"]:
-            lines.append("✓ System Installation: Found")
-            lines.append(f"  Path: {status['system_path']}")
+            lines.append(f"System engine: {status['system_path']}")
         else:
-            lines.append("✗ System Installation: Not found")
-
-        lines.append("")
-
-        # Local installation
+            lines.append("System engine not found")
         if status["local_installed"]:
-            lines.append("✓ Local Installation: Found")
-            lines.append(f"  Path: {status['local_path']}")
-            lines.append(f"  Version: {status['local_version'] or 'Unknown'}")
-
-            if status["latest_version"]:
-                lines.append(f"  Latest Version: {status['latest_version']}")
-                if status["update_available"]:
-                    lines.append("  📥 Update available!")
-                else:
-                    lines.append("  ✓ Up to date")
+            lines.append(f"Local engine: {status['local_path']}")
+            lines.append(f"Installed version: {status['local_version'] or 'Unknown'}")
         else:
-            lines.append("✗ Local Installation: Not found")
-            if status["latest_version"]:
-                lines.append(f"  Latest Version Available: {status['latest_version']}")
-
+            lines.append("Local engine not installed")
         lines.append("")
-
-        # Best path recommendation
-        best_path = self.manager.get_best_engine_path()
-        if best_path:
-            lines.append(f"🎯 Active Engine: {best_path}")
-        else:
-            lines.append("❌ No engine available")
-
-        lines.append("")
-
-        # Installation instructions
-        if not status["local_installed"] or status["update_available"]:
-            lines.append("📋 Installation Instructions:")
-            instructions = self.manager.get_installation_instructions()
-            lines.append(f"   {instructions}")
-
+        lines.append(
+            "Use Check for updates to contact GitHub for the latest release."
+            if status["local_installed"]
+            else self.manager.get_installation_instructions()
+        )
         self.status_text.SetValue("\n".join(lines))
-
-        # Update button states
-        can_install = self.manager.can_install()
-        self.install_btn.Enable(can_install)
-
-        if status["local_installed"] and status["update_available"]:
-            self.install_btn.SetLabel("Update Available")
-        elif status["local_installed"]:
-            self.install_btn.SetLabel("Reinstall")
-        else:
-            self.install_btn.SetLabel("Install")
+        self.install_btn.Enable(self.manager.can_install())
+        self.install_btn.SetLabel(
+            "Check for updates" if status["local_installed"] else "Install"
+        )
 
     def _on_refresh(self, event):
         """Refresh the status display."""
@@ -197,141 +127,80 @@ class EngineStatusDialog(wx.Dialog):
 
 
 class EngineInstallationRunner:
-    """
-    Manages the installation process with progress feedback.
-    Runs installation in a background thread and updates GUI.
-    """
+    """Run network and installation work outside the GUI event loop."""
 
-    def __init__(self, parent_window, manager: StockfishManager):
+    def __init__(self, parent_window, manager: StockfishManager, engine=None):
         self.parent = parent_window
         self.manager = manager
-        self.progress_dialog: EngineProgressDialog | None = None
-        self.installation_thread: threading.Thread | None = None
+        self.engine = engine
+        self.progress_dialog = None
+        self.result = None
 
-        # Connect to manager signals
+    def start_installation(self, update: bool = False) -> bool:
         self.manager.installation_started.connect(self._on_installation_started)
         self.manager.installation_progress.connect(self._on_installation_progress)
         self.manager.installation_completed.connect(self._on_installation_completed)
-
-    def start_installation(self) -> bool:
-        """
-        Start the installation process.
-
-        Returns:
-            True if installation was started, False if already running
-        """
-        if self.installation_thread and self.installation_thread.is_alive():
-            return False
-
-        # Create progress dialog
-        self.progress_dialog = EngineProgressDialog(
-            self.parent, "Installing Stockfish", "Preparing installation..."
-        )
-
-        # Start installation in background thread
-        self.installation_thread = threading.Thread(
-            target=self._run_installation, daemon=True
-        )
-        self.installation_thread.start()
-
-        # Show modal progress dialog immediately - this is safer than wx.CallAfter
+        title = "Updating Stockfish" if update else "Installing Stockfish"
         try:
-            result = self.progress_dialog.ShowModal()
-            return result != wx.ID_CANCEL
-        except Exception as e:
-            logger.error(f"Failed to show progress dialog: {e}")
+            with EngineProgressDialog(
+                self.parent, title, "Checking the latest release..."
+            ) as dialog:
+                self.progress_dialog = dialog
+                threading.Thread(
+                    target=self._run_installation,
+                    args=(update,),
+                    name="OpenBoard installation",
+                    daemon=True,
+                ).start()
+                dialog.ShowModal()
+        finally:
+            self.progress_dialog = None
+            self.manager.installation_started.disconnect(self._on_installation_started)
+            self.manager.installation_progress.disconnect(
+                self._on_installation_progress
+            )
+            self.manager.installation_completed.disconnect(
+                self._on_installation_completed
+            )
+        if self.result is None:
             return False
+        success, message = self.result
+        wx.MessageBox(
+            message,
+            title,
+            wx.OK | (wx.ICON_INFORMATION if success else wx.ICON_ERROR),
+            self.parent,
+        )
+        return success
 
-    def _run_installation(self):
-        """Run installation in background thread."""
+    def _run_installation(self, update):
         try:
-            self.manager.install_stockfish()
-        except Exception as e:
-            # Ensure completion signal is sent even on exception
-            error_msg = f"Installation failed: {str(e)}"
-            wx.CallAfter(
-                lambda: self.manager.installation_completed.send(
-                    self.manager, success=False, message=error_msg
-                )
+            if self.engine:
+                self.engine.stop()
+            if update:
+                self.manager.update_stockfish()
+            else:
+                self.manager.install_stockfish()
+        except Exception as error:
+            self._on_installation_completed(
+                self.manager, False, f"Installation failed: {error}"
             )
 
+    def _update_progress(self, current, message):
+        if self.progress_dialog:
+            self.progress_dialog.update_progress(current, message)
+
     def _on_installation_started(self, sender, version):
-        """Handle installation started signal."""
-
-        def update_ui():
-            if self.progress_dialog:
-                self.progress_dialog.update_progress(
-                    0, f"Installing Stockfish {version}..."
-                )
-
-        wx.CallAfter(update_ui)
+        wx.CallAfter(self._update_progress, 0, f"Installing Stockfish {version}...")
 
     def _on_installation_progress(self, sender, message, current, total):
-        """Handle installation progress signal."""
-
-        def update_ui():
-            if self.progress_dialog and not self.progress_dialog.was_cancelled:
-                # Calculate percentage
-                if total > 0:
-                    percent = int((current / total) * 100)
-                else:
-                    percent = 0
-
-                self.progress_dialog.update_progress(percent, message)
-
-        wx.CallAfter(update_ui)
+        percentage = int(current * 100 / total) if total > 0 else 0
+        wx.CallAfter(self._update_progress, percentage, message)
 
     def _on_installation_completed(self, sender, success, message):
-        """Handle installation completed signal."""
+        wx.CallAfter(self._complete, success, message)
 
-        def update_ui():
-            try:
-                if self.progress_dialog:
-                    # Update progress to 100%
-                    self.progress_dialog.update_progress(
-                        100,
-                        "Installation complete!" if success else "Installation failed!",
-                    )
-
-                    # Safely close the dialog using our custom modal tracking
-                    try:
-                        if (
-                            hasattr(self.progress_dialog, "_is_showing_modal")
-                            and self.progress_dialog._is_showing_modal
-                        ):
-                            self.progress_dialog.EndModal(
-                                wx.ID_OK if success else wx.ID_CANCEL
-                            )
-                        else:
-                            # Dialog not modal, try to close it normally
-                            self.progress_dialog.Close()
-                    except Exception as e:
-                        logger.warning(f"Could not close progress dialog normally: {e}")
-                        # Force close if needed
-                        try:
-                            self.progress_dialog.Destroy()
-                        except Exception:
-                            pass
-
-                    # Clear the dialog reference
-                    self.progress_dialog = None
-
-                    # Show completion message after dialog is closed
-                    wx.CallAfter(self._show_completion_message, success, message)
-
-            except Exception as e:
-                logger.error(f"Error in installation completion handler: {e}")
-
-        wx.CallAfter(update_ui)
-
-    def _show_completion_message(self, success: bool, message: str):
-        """Show the final completion message after dialog cleanup."""
-        try:
-            if success:
-                wx.MessageBox(
-                    message, "Installation Complete", wx.OK | wx.ICON_INFORMATION
-                )
-            else:
-                wx.MessageBox(message, "Installation Failed", wx.OK | wx.ICON_ERROR)
-        except Exception as e:
-            logger.error(f"Failed to show completion message: {e}")
+    def _complete(self, success, message):
+        if self.progress_dialog and self.result is None:
+            self.result = success, message
+            self.progress_dialog.EndModal(wx.ID_OK if success else wx.ID_CANCEL)

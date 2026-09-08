@@ -6,7 +6,7 @@
   #define AppVersion "0.1.0"
 #endif
 #define AppPublisher "OpenBoard Project"
-#define AppURL "https://github.com/openboard/openboard"
+#define AppURL "https://github.com/akj/OpenBoard"
 #define AppExeName "OpenBoard.exe"
 
 [Setup]
@@ -41,7 +41,7 @@ Compression=lzma2/max
 SolidCompression=yes
 
 ; Output configuration
-OutputDir=..\..\dist\installers
+OutputDir=..\..\..\dist\installers
 OutputBaseFilename={#AppName}-v{#AppVersion}-windows-x64-setup
 
 ; License file
@@ -56,21 +56,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "pgnassociation"; Description: "Associate .PGN files with {#AppName}"; GroupDescription: "File Associations:"; Flags: unchecked
 
 [Files]
-Source: "..\..\dist\{#AppName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
-
-[Registry]
-Root: HKA; Subkey: "Software\Classes\.pgn"; ValueType: string; ValueName: ""; ValueData: "OpenBoardPGN"; Flags: uninsdeletevalue; Tasks: pgnassociation
-Root: HKA; Subkey: "Software\Classes\OpenBoardPGN"; ValueType: string; ValueName: ""; ValueData: "OpenBoard Chess Game"; Flags: uninsdeletekey; Tasks: pgnassociation
-Root: HKA; Subkey: "Software\Classes\OpenBoardPGN\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: pgnassociation
-Root: HKA; Subkey: "Software\Classes\OpenBoardPGN\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: pgnassociation
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

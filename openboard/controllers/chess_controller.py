@@ -4,7 +4,7 @@ from io import StringIO
 from blinker import Signal
 
 from ..models.game import Game
-from ..models.game_mode import GameMode
+from ..models.game_mode import GameMode, GameConfig
 from ..logging_config import get_logger
 from ..exceptions import IllegalMoveError, EngineError
 
@@ -28,23 +28,23 @@ class ChessController:
     user commands, replay, hints, undo, load, etc.
     """
 
-    # Signals the VIEW should subscribe to:
-    board_updated = Signal()  # args: board (chess.Board)
-    square_focused = Signal()  # args: square (int 0..63)
-    selection_changed = Signal()  # args: selected_square (int|None)
-    announce = Signal()  # args: text (str)
-    status_changed = Signal()  # args: status (str)
-    hint_ready = Signal()  # args: move (chess.Move)
-    computer_thinking = Signal()  # args: thinking (bool)
-
     def __init__(self, game: Game, config: dict | None = None):
         """
         :param game: the Game model
         :param config: e.g. {"announce_mode": "verbose" or "brief"}
         """
         self.game = game
+        self.board_updated = Signal()
+        self.square_focused = Signal()
+        self.selection_changed = Signal()
+        self.announce = Signal()
+        self.status_changed = Signal()
+        self.hint_ready = Signal()
+        self.computer_thinking = Signal()
+        self.promotion_requested = Signal()
         self.config = config or {}
         self.announce_mode = self.config.get("announce_mode", "verbose")
+        self.announce_navigation = True
 
         logger.info(
             f"ChessController initialized with announce mode: {self.announce_mode}"
@@ -58,13 +58,16 @@ class ChessController:
         self._in_replay: bool = False
         self._replay_moves: list[chess.Move] = []
         self._replay_index: int = 0
+        self._replay_start = chess.Board()
 
         # computer move handling
         self._computer_thinking: bool = False
 
         # hook model signals — subscribe to Game-level forwarders (not board_state directly)
         game.move_made.connect(self._on_model_move)
-        game.move_undone.connect(self._on_model_undo)  # TD-01: use Game forwarder, not board_state
+        game.move_undone.connect(
+            self._on_model_undo
+        )  # TD-01: use Game forwarder, not board_state
         game.status_changed.connect(self._on_status_changed)
         game.hint_ready.connect(self._on_hint_ready)
 
@@ -74,13 +77,49 @@ class ChessController:
 
         # Note: Opening book functionality is now synchronous, no signals needed
 
-        # announce initial board
+    def start(self):
+        """Publish initial state after the view has subscribed."""
         self._emit_board_update()
         self._announce_initial_game_state()
+        self.continue_computer_game()
+
+    def new_game(self, config: GameConfig):
+        """Reset interaction state and start a game with the supplied players."""
+        self.cancel_pending_requests()
+        self._in_replay = False
+        self._replay_moves = []
+        self._replay_index = 0
+        self.game.new_game(config)
+        self.start()
+
+    def cancel_pending_requests(self):
+        """Cancel engine work and clear interaction state before replacing a position or engine."""
+        self.game.cancel_pending_requests()
+        self._computer_thinking = False
+        self.computer_thinking.send(self, thinking=False)
+        self.selected_square = None
+        self.selection_changed.send(self, selected_square=None)
+
+    @property
+    def in_replay(self) -> bool:
+        return self._in_replay
+
+    def move_history(self) -> tuple[chess.Board, list[chess.Move], int]:
+        """Return the initial board, full move list, and current move index."""
+        if self._in_replay:
+            return (
+                self._replay_start.copy(),
+                list(self._replay_moves),
+                self._replay_index - 1,
+            )
+        board = self.game.board_state.board
+        return board.root(), list(board.move_stack), len(board.move_stack) - 1
 
     # —— Model signal handlers —— #
 
-    def _on_model_move(self, sender, move=None, old_board=None, move_kind=None, **kwargs):
+    def _on_model_move(
+        self, sender, move=None, old_board=None, move_kind=None, **kwargs
+    ):
         """Fired whenever either side (or replay) pushes a move."""
         # tell view the board changed
         self._emit_board_update()
@@ -95,13 +134,8 @@ class ChessController:
                 ann = self._format_move_announcement(move, old_board)
                 self.announce.send(self, text=ann)
 
-        # Check if computer should move next (but not during replay)
-        if (
-            not self._in_replay
-            and self.game.is_computer_turn()
-            and not self.game.board_state.board.is_game_over()
-        ):
-            self._request_computer_move_async()
+        if move is not None and not self._computer_thinking:
+            self.continue_computer_game()
 
     def _on_model_undo(self, sender, move=None, **kwargs):
         """Fired whenever a move is undone in model (forwarded by Game)."""
@@ -135,7 +169,12 @@ class ChessController:
     ):
         """Handle computer move completion."""
         self._computer_thinking = False
-        self.computer_thinking.send(self, thinking=False)
+        self.computer_thinking.send(
+            self,
+            thinking=False,
+            error=error,
+            completed=move is not None and error is None,
+        )
 
         if error:
             self.announce.send(self, text=f"Computer move failed: {error}")
@@ -150,6 +189,16 @@ class ChessController:
             source_text = "opening book" if source == "book" else "engine analysis"
             if self.announce_mode == "verbose":
                 self.announce.send(self, text=f"Computer move from {source_text}")
+
+    def continue_computer_game(self):
+        """Start the next turn. Views defer this after engine completion."""
+        if (
+            not self._in_replay
+            and not self._computer_thinking
+            and self.game.is_computer_turn()
+            and not self.game.board_state.board_ref.is_game_over()
+        ):
+            self._request_computer_move_async()
 
     # —— Public methods for view events —— #
 
@@ -170,10 +219,15 @@ class ChessController:
             x += 1
 
         new_sq = y * 8 + x
-        if new_sq != self.current_square:
-            self.current_square = new_sq
-            self.square_focused.send(self, square=new_sq)
-            self._announce_square(new_sq)
+        self.focus_square(new_sq)
+
+    def focus_square(self, square: int):
+        """Move the single board focus used by keyboard and accessibility clients."""
+        if square in chess.SQUARES and square != self.current_square:
+            self.current_square = square
+            self.square_focused.send(self, square=square)
+            if self.announce_navigation:
+                self._announce_square(square)
 
     def select(self):
         """
@@ -181,6 +235,9 @@ class ChessController:
         Bound to SPACE.
         """
         # Prevent moves during computer thinking
+        if self._in_replay:
+            self.announce.send(self, text="Replay mode. Start a new game to play")
+            return
         if self._computer_thinking:
             self.announce.send(self, text="Computer is thinking, please wait")
             return
@@ -211,8 +268,24 @@ class ChessController:
             # confirm move from selected_square -> current_square
             src = self.selected_square
             dst = self.current_square
-            self._do_move(src, dst)
-            # clear selection
+            if src == dst:
+                self.deselect()
+                return
+            board = self.game.board_state.board_ref
+            promotions = [
+                move.promotion
+                for move in board.legal_moves
+                if move.from_square == src and move.to_square == dst and move.promotion
+            ]
+            if promotions:
+                self.promotion_requested.send(self, source=src, destination=dst)
+            elif self._do_move(src, dst):
+                self.selected_square = None
+                self.selection_changed.send(self, selected_square=None)
+
+    def promote(self, source: int, destination: int, piece: chess.PieceType):
+        """Complete a promotion chosen in the view's native dialog."""
+        if self._do_move(source, destination, promotion=piece):
             self.selected_square = None
             self.selection_changed.send(self, selected_square=None)
 
@@ -233,8 +306,23 @@ class ChessController:
         if self._in_replay:
             self.replay_prev()
         else:
+            if self.game.config.mode == GameMode.HUMAN_VS_COMPUTER:
+                board = self.game.board_state.board_ref
+                first_human_move = (
+                    1 if board.root().turn == self.game.config.human_color else 2
+                )
+                if len(board.move_stack) < first_human_move:
+                    self.announce.send(self, text="Nothing to undo")
+                    return
+            self.cancel_pending_requests()
             try:
-                self.game.board_state.undo_move()
+                self.game.undo_move()
+                if (
+                    self.game.config.mode == GameMode.HUMAN_VS_COMPUTER
+                    and self.game.is_computer_turn()
+                    and self.game.board_state.board_ref.move_stack
+                ):
+                    self.game.undo_move()
             except IndexError:
                 self.announce.send(self, text="Nothing to undo")
 
@@ -244,7 +332,7 @@ class ChessController:
         """
         try:
             self.game.request_hint_async()
-        except EngineError as e:
+        except (EngineError, ValueError, RuntimeError) as e:
             self.announce.send(self, text=str(e))
 
     def request_book_hint(self):
@@ -257,7 +345,7 @@ class ChessController:
                 self.announce.send(self, text="No opening book loaded")
                 return
 
-            book_move = self.game.request_book_move()  # Get best move
+            book_move = self.game.get_book_move()
             if book_move:
                 # Use simple format for book hints since we don't have board context
                 src_name = chess.square_name(book_move.from_square)
@@ -305,7 +393,7 @@ class ChessController:
         Called from menu/dialog.
         """
         if self.game.opening_book:
-            self.game.unload_opening_book()
+            self.game.close_opening_book()
             if self.announce_mode == "verbose":
                 self.announce.send(self, text="Opening book unloaded")
         else:
@@ -334,100 +422,96 @@ class ChessController:
             self.announce.send(self, text=f"Error checking opening book: {e}")
 
     def load_fen(self, fen: str):
-        """
-        Bound to a menu/button.  Immediately loads a FEN.
-        Exits replay mode.
-        """
+        """Load a position without changing the current game on invalid input."""
+        try:
+            board = chess.Board(fen)
+            if not board.is_valid():
+                raise ValueError("Position is not a valid chess position")
+        except ValueError as error:
+            self.announce.send(self, text=f"Invalid FEN: {error}")
+            return
+        self.cancel_pending_requests()
         self._in_replay = False
-        self.game.board_state.load_fen(fen)
-
-    def load_pgn(self, pgn_text: str):
-        """
-        Loads a PGN for manual replay.  Does NOT play out all moves at once.
-        """
-        self._in_replay = True
         self._replay_moves = []
         self._replay_index = 0
+        self.game.load_fen(fen)
+        self.continue_computer_game()
 
-        # parse and store moves
-        stream = StringIO(pgn_text)
-        pg = chess.pgn.read_game(stream)
-        if pg is None:
-            self.announce.send(self, text="Invalid PGN")
+    def load_pgn(self, pgn_text: str):
+        """Load the complete main line for review, including its starting position."""
+        try:
+            pg = chess.pgn.read_game(StringIO(pgn_text))
+            if pg is None or pg.errors:
+                raise ValueError("Could not parse the complete game")
+            start = pg.board()
+            if type(start) is not chess.Board or start.chess960:
+                raise ValueError("Only standard chess games are supported")
+            if not start.is_valid():
+                raise ValueError("Invalid starting position")
+            moves = list(pg.mainline_moves())
+        except ValueError as error:
+            self.announce.send(self, text=f"Invalid PGN: {error}")
             return
-
-        for mv in pg.mainline_moves():
-            self._replay_moves.append(mv)
-
-        # reset to start
-        self.game.board_state.load_fen(chess.STARTING_FEN)
-        self._emit_board_update()
+        self.cancel_pending_requests()
+        self._in_replay = True
+        self._replay_start = start
+        self._replay_moves = moves
+        self._replay_index = 0
+        self.game.load_fen(start.fen())
         self.announce.send(self, text="PGN loaded; ready to replay")
 
     def replay_next(self):
-        """Bound to F6: step forward one move in PGN replay."""
+        """Step forward one move without losing the rest of the game."""
         if not self._in_replay:
             return
         if self._replay_index < len(self._replay_moves):
-            mv = self._replay_moves[self._replay_index]
+            move = self._replay_moves[self._replay_index]
             self._replay_index += 1
-            self.game.board_state.make_move(mv)
+            try:
+                self.game.make_move(move)
+            except IllegalMoveError:
+                self._replay_index -= 1
+                raise
         else:
             self.announce.send(self, text="End of game")
 
     def replay_prev(self):
-        """Bound to F5: step back one move in PGN replay."""
+        """Step back one move in the game under review."""
         if not self._in_replay:
             return
         if self._replay_index > 0:
             self._replay_index -= 1
-            self.game.board_state.undo_move()
+            try:
+                self.game.undo_move()
+            except IndexError:
+                self._replay_index += 1
+                raise
         else:
             self.announce.send(self, text="At start of game")
 
     def replay_to_position(self, target_index: int) -> None:
-        """Navigate the LIVE move_stack to position after move at target_index (-1 = starting position).
-
-        SCOPE: operates on `Game.board_state.board.move_stack` only. Does NOT navigate
-        PGN-replay state loaded from outside (Phase 2a's concern). target_index refers to
-        an index into the live move_stack.
-
-        Idempotent: calling with the current index is a no-op.
-        Out-of-range: clamped to [-1, len(move_stack)-1].
-
-        Uses BoardState.make_move / undo_move exclusively — no direct board.push.
-        Eliminates the views.py:_navigate_to_position model-bypass anti-pattern.
-        (TD-03 / D-06 / Codex MEDIUM clarification)
-        """
-        live_move_stack = list(self.game.board_state.board.move_stack)
-        current_index = len(live_move_stack) - 1
-        target_index = max(-1, min(target_index, len(live_move_stack) - 1))
-
-        if target_index == current_index:
+        """Review a position while retaining the complete game for later navigation."""
+        if not self._in_replay:
+            board = self.game.board_state.board
+            self.cancel_pending_requests()
+            self._in_replay = True
+            self._replay_start = board.root()
+            self._replay_moves = list(board.move_stack)
+            self._replay_index = len(self._replay_moves)
+        target_count = max(0, min(target_index + 1, len(self._replay_moves)))
+        if target_count == self._replay_index:
             self.announce.send(self, text="Already at selected position")
             return
-
-        if target_index < current_index:
-            for _ in range(current_index - target_index):
-                try:
-                    self.game.board_state.undo_move()
-                except IndexError:
-                    break
-        else:
-            # Re-apply moves from current_index+1 up to target_index. Source is the
-            # snapshot of move_stack captured BEFORE we started undoing, since
-            # undo_move() pops from the live stack but we kept the immutable list copy.
-            for next_index in range(current_index + 1, target_index + 1):
-                move = live_move_stack[next_index]
-                try:
-                    self.game.board_state.make_move(move)
-                except (IllegalMoveError, IndexError):
-                    break
-
-        if target_index < 0:
-            self.announce.send(self, text="Navigated to starting position")
-        else:
-            self.announce.send(self, text=f"Navigated to position after move {target_index + 1}")
+        while self._replay_index > target_count:
+            self.replay_prev()
+        while self._replay_index < target_count:
+            self.replay_next()
+        message = (
+            "Navigated to starting position"
+            if target_count == 0
+            else f"Navigated to position after move {target_count}"
+        )
+        self.announce.send(self, text=message)
 
     def toggle_announce_mode(self):
         """
@@ -487,7 +571,9 @@ class ChessController:
         (TD-04 / D-16 / TD-13 / D-18 / CONCERNS.md Bug #3 + Performance #2 + Performance #3)
         """
         if self.current_square is None:
-            self.announce.send(self, text="No square focused. Navigate to a square first")
+            self.announce.send(
+                self, text="No square focused. Navigate to a square first"
+            )
             return
 
         # Read-only access: board_ref skips the .board copy on every call (Codex MEDIUM adoption).
@@ -495,10 +581,9 @@ class ChessController:
         square_name = chess.square_name(self.current_square)
 
         # Single bitboard union: O(1) per color, two colors.
-        attackers_squareset = (
-            board.attackers(chess.WHITE, self.current_square)
-            | board.attackers(chess.BLACK, self.current_square)
-        )
+        attackers_squareset = board.attackers(
+            chess.WHITE, self.current_square
+        ) | board.attackers(chess.BLACK, self.current_square)
 
         attacking_pieces: list[tuple[int, chess.Piece]] = []
         for attacking_square in attackers_squareset:
@@ -511,9 +596,13 @@ class ChessController:
             return
 
         if self.announce_mode == "brief":
-            announcement = self._format_brief_attacking_pieces(attacking_pieces, square_name)
+            announcement = self._format_brief_attacking_pieces(
+                attacking_pieces, square_name
+            )
         else:
-            announcement = self._format_verbose_attacking_pieces(attacking_pieces, square_name)
+            announcement = self._format_verbose_attacking_pieces(
+                attacking_pieces, square_name
+            )
 
         self.announce.send(self, text=announcement)
 
@@ -538,14 +627,18 @@ class ChessController:
 
     # —— Internal helpers —— #
 
-    def _do_move(self, src: int, dst: int):
+    def _do_move(
+        self, src: int, dst: int, promotion: chess.PieceType | None = None
+    ) -> bool:
         """
         Wraps Game.apply_move. old_board now flows through BoardState.move_made signal (D-03).
         """
         try:
-            self.game.apply_move(src, dst)
+            self.game.apply_move(src, dst, promotion=promotion)
+            return True
         except IllegalMoveError as error:
             self.announce.send(self, text=str(error))
+            return False
 
     def _emit_board_update(self):
         """Pulls a fresh copy of the chess.Board and sends it to the view."""
@@ -557,7 +650,7 @@ class ChessController:
         When focus moves, we say e.g. "White rook on a1" or just "a1 rook"
         depending on mode.
         """
-        b = self.game.board_state.board
+        b = self.game.board_state.board_ref
         piece = b.piece_at(square)
         fname = chess.square_name(square)
         if piece:
@@ -832,7 +925,7 @@ class ChessController:
             logger.error(f"Failed to request computer move: {error}")
             # Signal thinking stopped even on error
             self._computer_thinking = False
-            self.computer_thinking.send(self, thinking=False)
+            self.computer_thinking.send(self, thinking=False, error=str(error))
             self.announce.send(self, text=f"Computer move failed: {error}")
 
     def is_computer_thinking(self) -> bool:
@@ -902,9 +995,9 @@ class ChessController:
 
         return True
 
-    def _get_square_description(self, square: int) -> str:
+    def square_description(self, square: int) -> str:
         """Get a concise description of what's at a square."""
-        b = self.game.board_state.board
+        b = self.game.board_state.board_ref
         piece = b.piece_at(square)
         square_name = chess.square_name(square)
 
@@ -913,4 +1006,4 @@ class ChessController:
             name = PIECE_NAMES[piece.piece_type]
             return f"{color} {name} on {square_name}"
         else:
-            return f"Empty square {square_name}"
+            return square_name

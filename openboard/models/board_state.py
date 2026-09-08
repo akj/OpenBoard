@@ -24,28 +24,18 @@ class BoardState:
         self.move_made = Signal()
         self.move_undone = Signal()
         self.status_changed = Signal()
-        # announce initial status
-        self.status_changed.send(self, status=self.game_status())
 
     @property
     def board(self) -> chess.Board:
         """
         Return a copy of the current internal board.
-        Use this for inspection or engine‐analysis only; do not mutate.
+        The copy includes move history for repetition detection and engine analysis.
         """
         return self._board.copy()
 
     @property
     def board_ref(self) -> chess.Board:
-        """Returns the live `chess.Board` for read-only access by controller/view layers.
-
-        Callers MUST NOT mutate (no `push`, `pop`, `set_fen`, etc.).
-        Use `board` (snapshot copy) when mutation is possible.
-
-        Performance: avoids the 64-square Board.copy() per access. Use cases include
-        paint loops, navigation handlers, and read-only attacker queries.
-        (TD-13 / D-18 / CONCERNS.md Performance #3)
-        """
+        """Read the current position without copying its history. Do not mutate it."""
         return self._board
 
     def load_fen(self, fen: str):
@@ -53,25 +43,26 @@ class BoardState:
         Replace the position with the one given by FEN.
         Emits status_changed.
         """
-        self._board.set_fen(fen)
+        self._board = chess.Board(fen)
         self.move_made.send(self, move=None, old_board=None)
         self.status_changed.send(self, status=self.game_status())
 
     def load_pgn(self, pgn_text: str):
         """
-        Parse a PGN (possibly with headers) and play out its mainline moves.
-        Emits move_made for each move and a final status_changed.
+        Validate a PGN and replace the position with the end of its mainline.
+        Observers see one completed update, never partially imported moves.
         """
         stream = StringIO(pgn_text)
         game = chess.pgn.read_game(stream)
         if game is None:
             raise ValueError("Could not parse PGN data")
-        # reset board to starting position
-        self._board = game.board()
+        if game.errors:
+            raise ValueError(f"Invalid PGN: {game.errors[0]}")
+        board = game.board()
         for move in game.mainline_moves():
-            old_board = self._board.copy()
-            self._board.push(move)
-            self.move_made.send(self, move=move, old_board=old_board)
+            board.push(move)
+        self._board = board
+        self.move_made.send(self, move=None, old_board=None)
         self.status_changed.send(self, status=self.game_status())
 
     def make_move(self, move: chess.Move):
@@ -81,9 +72,11 @@ class BoardState:
         """
         if move not in self._board.legal_moves:
             raise IllegalMoveError(str(move), self._board.fen())
-        old_board = self._board.copy()  # snapshot for downstream MoveKind computation
+        old_board = self._board.copy(stack=False)
         self._board.push(move)
-        self.move_made.send(self, move=move, old_board=old_board)  # carry old_board kwarg
+        self.move_made.send(
+            self, move=move, old_board=old_board
+        )  # carry old_board kwarg
         self.status_changed.send(self, status=self.game_status())
 
     def undo_move(self):
@@ -105,21 +98,14 @@ class BoardState:
         return self._board.turn
 
     def game_status(self) -> str:
-        """
-        Return a human-readable game status:
-         - 'Checkmate'
-         - 'Stalemate'
-         - 'Draw by insufficient material'
-         - 'Draw by fifty-move rule'
-         - 'In progress'
-        """
-        b = self._board
-        if b.is_checkmate():
-            return "Checkmate"
-        if b.is_stalemate():
-            return "Stalemate"
-        if b.is_insufficient_material():
-            return "Draw by insufficient material"
-        if b.can_claim_fifty_moves():
-            return "Draw by fifty-move rule"
-        return "In progress"
+        """Describe automatic game endings. A claimable draw has not ended the game."""
+        outcome = self._board.outcome()
+        if outcome is None:
+            return "In progress"
+        return {
+            chess.Termination.CHECKMATE: "Checkmate",
+            chess.Termination.STALEMATE: "Stalemate",
+            chess.Termination.INSUFFICIENT_MATERIAL: "Draw by insufficient material",
+            chess.Termination.SEVENTYFIVE_MOVES: "Draw by seventy-five-move rule",
+            chess.Termination.FIVEFOLD_REPETITION: "Draw by fivefold repetition",
+        }[outcome.termination]

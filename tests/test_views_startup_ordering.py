@@ -39,7 +39,9 @@ def _restore_openboard_modules(snapshot: dict) -> None:
 class TestStartupOrdering:
     """Verifies Codex HIGH: import-time side effects are absent."""
 
-    def test_import_views_does_not_initialize_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_import_views_does_not_initialize_settings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verifies Codex HIGH: `import openboard.views.views` does NOT initialize the _settings singleton.
 
         Approach: force a fresh import of openboard.views.views with _settings reset to None.
@@ -60,7 +62,10 @@ class TestStartupOrdering:
         try:
             # Import settings module first so we have a reference, then reset _settings to None.
             import openboard.config.settings as settings_module
-            settings_module._settings = None  # Start with None so get_settings() would initialize it.
+
+            settings_module._settings = (
+                None  # Start with None so get_settings() would initialize it.
+            )
 
             # Import views.views — if it calls get_settings() at module top, _settings will become
             # a real Settings() object. We detect this by asserting it stays None.
@@ -76,7 +81,10 @@ class TestStartupOrdering:
             _restore_openboard_modules(snapshot)
 
     def test_import_views_does_not_trigger_migration(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Verifies Codex HIGH: `import openboard.views.views` does NOT call migrate_legacy_paths().
 

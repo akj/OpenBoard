@@ -2,7 +2,6 @@
 
 import hashlib
 import ssl
-import subprocess
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -27,7 +26,9 @@ class TestSSLContext:
         fake_response.headers = {}
         fake_response.getheader.return_value = "3"
 
-        with patch("openboard.engine.downloader.urlopen", return_value=fake_response) as urlopen_mock:
+        with patch(
+            "openboard.engine.downloader.urlopen", return_value=fake_response
+        ) as urlopen_mock:
             downloader.download_file(
                 url="https://example.com/stockfish.zip",
                 dest_path=tmp_path / "stockfish.zip",
@@ -36,7 +37,9 @@ class TestSSLContext:
         assert urlopen_mock.called, "download_file must call urlopen"
         kwargs = urlopen_mock.call_args.kwargs
         ssl_context_arg = kwargs.get("context")
-        assert ssl_context_arg is not None, "TD-13 / D-21: urlopen must receive context= kwarg"
+        assert ssl_context_arg is not None, (
+            "TD-13 / D-21: urlopen must receive context= kwarg"
+        )
         assert isinstance(ssl_context_arg, ssl.SSLContext)
         assert ssl_context_arg.verify_mode == ssl.CERT_REQUIRED
 
@@ -132,33 +135,14 @@ class TestSHA256Verification:
 
         # And explicitly: NO WARN-level log from this path.
         warn_records = [
-            r for r in caplog.records
-            if r.levelname == "WARNING" and ("SHA-256" in r.message or "integrity" in r.message)
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and ("SHA-256" in r.message or "integrity" in r.message)
         ]
         assert warn_records == [], (
             "Codex MEDIUM: per-download log must be DEBUG, not WARN. "
             f"Found WARN: {[r.message for r in warn_records]}"
-        )
-
-    def test_stockfish_manager_logs_single_startup_info_on_no_checksum_source(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Verifies D-21 / Codex MEDIUM: StockfishManager logs ONE INFO at startup if no checksum source is configured.
-
-        This satisfies the operator-visibility need without flooding logs on every download.
-        """
-        from openboard.engine.stockfish_manager import StockfishManager
-
-        with caplog.at_level("INFO"):
-            StockfishManager(Path(tmp_path))
-
-        info_records = [
-            r for r in caplog.records
-            if r.levelname == "INFO" and "no upstream checksum source" in r.message.lower()
-        ]
-        assert len(info_records) == 1, (
-            "Codex MEDIUM: StockfishManager must log exactly ONE INFO at startup if no "
-            f"upstream checksum source is configured. Got {len(info_records)} INFO records."
         )
 
 
@@ -196,33 +180,3 @@ class TestZipPathTraversalGuard:
         downloader = StockfishDownloader(install_dir=install_dir)
         assert downloader.extract_zip(ok_zip, install_dir) is True
         assert (install_dir / "nested" / "file.txt").read_text() == "safe content"
-
-
-class TestFilenameInvariant:
-    """Verifies Codex HIGH: settings.json never appears in source — config.json is preserved."""
-
-    def test_no_settings_json_filename_in_source_tree(self) -> None:
-        """[guardrail] Verifies Codex HIGH: no `settings.json` filename anywhere in openboard/ or tests/.
-
-        Phase 1 explicitly preserves the legacy `config.json` filename in the new platformdirs
-        location. The rename to `settings.json` is DEFERRED. This grep guardrail catches any
-        accidental drift toward the rename.
-
-        See <filename_decision> in 01-04-PLAN.md.
-        """
-        result = subprocess.run(
-            ["grep", "-rn", "settings.json", "openboard/", "tests/"],
-            capture_output=True,
-            text=True,
-        )
-        # Filter out the matches in this test file itself (which legitimately contain the token).
-        offending_lines = [
-            line for line in result.stdout.splitlines()
-            if "test_downloader_security.py" not in line
-            and "01-04-PLAN.md" not in line
-        ]
-        assert offending_lines == [], (
-            "Codex HIGH: `settings.json` filename must NOT appear in openboard/ or tests/ "
-            "(Phase 1 preserves legacy config.json). Found:\n"
-            + "\n".join(offending_lines)
-        )

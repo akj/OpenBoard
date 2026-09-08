@@ -43,7 +43,7 @@ class OpenBoardBuilder:
             # Assume script is in build/scripts/, so project root is two levels up
             self.project_root = Path(__file__).parent.parent.parent
         else:
-            self.project_root = Path(project_root)
+            self.project_root = Path(project_root).resolve()
 
         self.build_dir = self.project_root / "build"  # PyInstaller build artifacts
         self.dist_dir = self.project_root / "dist"
@@ -57,11 +57,8 @@ class OpenBoardBuilder:
         self.is_macos = self.system == "Darwin"
         self.is_linux = self.system == "Linux"
 
-        # Load project metadata
-        self.project_metadata = self._load_project_metadata()
-
-        # Setup logging
         self.logger = self._setup_logging()
+        self.project_metadata = self._load_project_metadata()
 
     def _setup_logging(self) -> logging.Logger:
         """Setup logging for the build process."""
@@ -161,34 +158,6 @@ class OpenBoardBuilder:
         except Exception as e:
             self.logger.warning(f"Could not save build metadata: {e}")
 
-    def _update_spec_with_version(self) -> None:
-        """Update the PyInstaller spec file with current version information."""
-        if not self.spec_file.exists():
-            self.logger.warning("Spec file does not exist, skipping version update")
-            return
-
-        try:
-            # Read the spec file
-            with open(self.spec_file, "r") as f:
-                spec_content = f.read()
-
-            # Update version in spec file
-            version = self.project_metadata["version"]
-            updated_content = spec_content.replace(
-                'APP_VERSION = "0.1.0"', f'APP_VERSION = "{version}"'
-            )
-
-            # Write back if changed
-            if updated_content != spec_content:
-                with open(self.spec_file, "w") as f:
-                    f.write(updated_content)
-                self.logger.info(f"Updated spec file with version {version}")
-            else:
-                self.logger.debug("Spec file version already up to date")
-
-        except Exception as e:
-            self.logger.warning(f"Could not update spec file version: {e}")
-
     def _run_command(self, command: list[str], cwd: Path | None = None) -> None:
         """
         Run a command with proper error handling.
@@ -236,7 +205,7 @@ class OpenBoardBuilder:
 
         # Check that PyInstaller is available
         try:
-            self._run_command(["uv", "run", "pyinstaller", "--version"])
+            self._run_command([sys.executable, "-m", "PyInstaller", "--version"])
         except BuildError:
             raise BuildError(
                 "PyInstaller not found. Please run 'uv sync --group dev' to install build dependencies."
@@ -244,7 +213,7 @@ class OpenBoardBuilder:
 
         # Check that the project dependencies are installed
         try:
-            self._run_command(["uv", "run", "python", "-c", "import openboard"])
+            self._run_command([sys.executable, "-c", "import openboard"])
         except BuildError:
             raise BuildError(
                 "OpenBoard package not found. Please run 'uv sync' to install dependencies."
@@ -260,35 +229,29 @@ class OpenBoardBuilder:
         self.logger.info(f"Using spec file: {self.spec_file}")
 
     def _clean_build_artifacts(self) -> None:
-        """Clean previous build artifacts."""
-        self.logger.info("Cleaning previous build artifacts...")
-
-        # Remove dist directory
-        if self.dist_dir.exists():
-            shutil.rmtree(self.dist_dir)
-            self.logger.info(f"Removed {self.dist_dir}")
-
-        # Remove PyInstaller work directories
-        work_dir = self.project_root / "build" / "work"
-        if work_dir.exists():
-            shutil.rmtree(work_dir)
-            self.logger.info(f"Removed {work_dir}")
-
-        # Remove __pycache__ directories
-        for pycache in self.project_root.rglob("__pycache__"):
-            if pycache.is_dir():
-                shutil.rmtree(pycache)
-
-        self.logger.info("Build artifacts cleaned.")
+        """Remove only this app's generated executable and intermediate build files."""
+        for target in (
+            self.dist_dir / "OpenBoard",
+            self.dist_dir / "OpenBoard.app",
+            self.build_dir / self.spec_file.stem,
+        ):
+            resolved = target.resolve()
+            if not resolved.is_relative_to(self.project_root.resolve()):
+                raise BuildError(
+                    f"Refusing to remove build path outside the project: {target}"
+                )
+            if target.exists():
+                shutil.rmtree(target)
+                self.logger.info(f"Removed {target}")
 
     def _run_pyinstaller(self) -> None:
         """Run PyInstaller with the spec file."""
         self.logger.info("Running PyInstaller...")
 
         command = [
-            "uv",
-            "run",
-            "pyinstaller",
+            sys.executable,
+            "-m",
+            "PyInstaller",
             "--clean",
             "--noconfirm",
             str(self.spec_file),
@@ -297,27 +260,18 @@ class OpenBoardBuilder:
         self._run_command(command)
         self.logger.info("PyInstaller completed successfully.")
 
+    @property
+    def executable_path(self) -> Path:
+        """The executable inside the platform's distribution directory."""
+        if self.is_macos:
+            return self.dist_dir / "OpenBoard.app" / "Contents" / "MacOS" / "OpenBoard"
+        filename = "OpenBoard.exe" if self.is_windows else "OpenBoard"
+        return self.dist_dir / "OpenBoard" / filename
+
     def _verify_build(self) -> None:
-        """Verify that the build was successful."""
-        self.logger.info("Verifying build output...")
-
-        # Check that the dist directory was created
-        if not self.dist_dir.exists():
-            raise BuildError("Distribution directory was not created.")
-
-        # Check for the main executable
-        app_name = "OpenBoard"
-        if self.is_windows:
-            executable = self.dist_dir / app_name / f"{app_name}.exe"
-        elif self.is_macos:
-            executable = self.dist_dir / f"{app_name}.app"
-        else:  # Linux
-            executable = self.dist_dir / app_name / app_name
-
-        if not executable.exists():
-            raise BuildError(f"Executable not found: {executable}")
-
-        self.logger.info(f"Build successful! Executable: {executable}")
+        if not self.executable_path.is_file():
+            raise BuildError(f"Executable not found: {self.executable_path}")
+        self.logger.info(f"Build created executable: {self.executable_path}")
 
     def _get_build_info(self) -> Dict[str, str]:
         """Get build information for reporting."""
@@ -363,9 +317,6 @@ class OpenBoardBuilder:
             # Check spec file
             self._check_spec_file()
 
-            # Update spec file with current version
-            self._update_spec_with_version()
-
             # Clean previous builds
             if clean:
                 self._clean_build_artifacts()
@@ -386,63 +337,24 @@ class OpenBoardBuilder:
             raise
 
     def run_tests(self) -> None:
-        """Run basic tests to verify the application works."""
-        self.logger.info("Running application tests...")
-
-        try:
-            # Test that the package can be imported
-            self._run_command(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "-c",
-                    "import openboard; print('OpenBoard package imported successfully')",
-                ]
-            )
-
-            # Test that the entry point works (just import, don't start GUI)
-            self._run_command(
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "-c",
-                    "from openboard.views.views import main; print('Entry point accessible')",
-                ]
-            )
-
-            self.logger.info("Tests passed!")
-
-        except BuildError as e:
-            self.logger.error(f"Tests failed: {e}")
-            raise
+        """Run the source startup smoke check without opening the GUI."""
+        self._run_command(
+            [
+                sys.executable,
+                str(self.project_root / ".build" / "validation" / "verify_build.py"),
+            ]
+        )
 
     def run_build_validation(self, executable_path: Path | None = None) -> None:
-        """Run comprehensive build validation using the validation framework."""
-        self.logger.info("Running comprehensive build validation...")
-
-        validation_script = self.build_dir / "validation" / "verify_build.py"
-        if not validation_script.exists():
-            self.logger.warning(
-                "Build validation script not found, skipping validation"
-            )
-            return
-
-        command = ["uv", "run", "python", str(validation_script)]
-
-        if executable_path:
-            command.extend(["--executable", str(executable_path)])
-
-        if self.logger.level == logging.DEBUG:
-            command.append("--verbose")
-
-        try:
-            self._run_command(command)
-            self.logger.info("Build validation completed successfully!")
-        except BuildError as e:
-            self.logger.error(f"Build validation failed: {e}")
-            raise
+        """Run the packaged startup smoke check without falling back to source."""
+        self._run_command(
+            [
+                sys.executable,
+                str(self.project_root / ".build" / "validation" / "verify_build.py"),
+                "--executable",
+                str(executable_path or self.executable_path),
+            ]
+        )
 
     def build_installer(self, installer_type: str | None = None) -> None:
         """
@@ -467,7 +379,7 @@ class OpenBoardBuilder:
             raise BuildError(f"Installer build script not found at {installer_script}")
 
         # Build command
-        command = ["uv", "run", "python", str(installer_script)]
+        command = [sys.executable, str(installer_script)]
 
         # Add version from project metadata
         command.extend(["--version", self.project_metadata["version"]])
@@ -567,19 +479,7 @@ def main() -> NoReturn:
 
             # Run validation after build unless skipped
             if not args.skip_validation:
-                # Determine executable path for validation
-                app_name = "OpenBoard"
-                if builder.is_windows:
-                    executable = builder.dist_dir / app_name / f"{app_name}.exe"
-                elif builder.is_macos:
-                    executable = builder.dist_dir / f"{app_name}.app"
-                else:  # Linux
-                    executable = builder.dist_dir / app_name / app_name
-
-                if executable.exists():
-                    builder.run_build_validation(executable)
-                else:
-                    builder.run_build_validation()
+                builder.run_build_validation()
 
             # Build installer if requested
             if args.build_installer:

@@ -46,12 +46,16 @@ class TestMenuBindingHygieneBehavioral:
 
         recorded_binds: list[dict] = []
 
-        def recording_bind(self_obj, event_type, handler, source=None, id=wx.ID_ANY, id2=wx.ID_ANY):
+        def recording_bind(
+            self_obj, event_type, handler, source=None, id=wx.ID_ANY, id2=wx.ID_ANY
+        ):
             if event_type == wx.EVT_MENU:
-                recorded_binds.append({
-                    "handler": getattr(handler, "__name__", repr(handler)),
-                    "id": id,
-                })
+                recorded_binds.append(
+                    {
+                        "handler": getattr(handler, "__name__", repr(handler)),
+                        "id": id,
+                    }
+                )
             # Don't actually call original_bind — we don't want to invoke wx machinery.
 
         with patch.object(wx.EvtHandler, "Bind", recording_bind):
@@ -73,7 +77,9 @@ class TestMenuBindingHygieneBehavioral:
         offending = [bind for bind in recorded_binds if bind["id"] == wx.ID_ANY]
         assert offending == [], (
             f"TD-05 / D-08 BEHAVIORAL: {len(offending)} EVT_MENU binds use wx.ID_ANY:\n"
-            + "\n".join(f"  - handler={bind['handler']}, id=wx.ID_ANY" for bind in offending)
+            + "\n".join(
+                f"  - handler={bind['handler']}, id=wx.ID_ANY" for bind in offending
+            )
         )
 
         # And we should have observed at least one bind (sanity check that the test actually ran).

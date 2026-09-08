@@ -66,7 +66,10 @@ class TestLegacyKeyboardConfigJsonMigration:
         new_keyboard = paths.keyboard_config_path()
         assert new_keyboard.exists()
         assert new_keyboard.name == "keyboard_config.json"
-        assert json.loads(new_keyboard.read_text()) == {"version": "1.0", "bindings": []}
+        assert json.loads(new_keyboard.read_text()) == {
+            "version": "1.0",
+            "bindings": [],
+        }
 
 
 class TestEnginesDirMigrationConditional:
@@ -81,7 +84,9 @@ class TestEnginesDirMigrationConditional:
         create an empty engines/ subdirectory. The directory is created lazily on first download.
         """
         monkeypatch.chdir(isolated_profile)
-        assert not (isolated_profile / "engines").exists(), "test setup: no legacy engines/"
+        assert not (isolated_profile / "engines").exists(), (
+            "test setup: no legacy engines/"
+        )
 
         from openboard.config.migration import migrate_legacy_paths
 
@@ -117,7 +122,10 @@ class TestMigrationIdempotency:
     """Verifies TD-12 / D-10 / Codex HIGH: second run is a silent no-op."""
 
     def test_migration_idempotent(
-        self, isolated_profile: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self,
+        isolated_profile: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Verifies Codex HIGH: a second run with no legacy files is a SILENT no-op.
 
@@ -160,5 +168,9 @@ class TestMigrationIdempotency:
 
         migrate_legacy_paths()
 
-        assert legacy_settings.exists(), "legacy must NOT be moved when new already exists"
-        assert json.loads(new_settings.read_text()) == {"new": True}, "new path must NOT be clobbered"
+        assert legacy_settings.exists(), (
+            "legacy must NOT be moved when new already exists"
+        )
+        assert json.loads(new_settings.read_text()) == {"new": True}, (
+            "new path must NOT be clobbered"
+        )

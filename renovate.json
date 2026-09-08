@@ -16,7 +16,8 @@
   "minimumReleaseAge": "3 days",
   "enabledManagers": [
     "pep621",
-    "github-actions"
+    "github-actions",
+    "custom.regex"
   ],
   "ignoreDeps": [
     "python"
@@ -43,7 +44,27 @@
       "Change": "All locks refreshed"
     }
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^pyproject\\.toml$/"],
+      "matchStrings": ["required-version = \"(?<currentValue>>=[0-9.]+)\""],
+      "depNameTemplate": "uv",
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440"
+    }
+  ],
   "packageRules": [
+    {
+      "description": "Look up wxPython releases on PyPI while uv uses Linux wheels",
+      "matchManagers": ["pep621"],
+      "matchPackageNames": ["wxpython"],
+      "registryUrls": ["https://pypi.org/pypi/"]
+    },
+    {
+      "matchPackageNames": ["uv"],
+      "rangeStrategy": "bump"
+    },
     {
       "description": "Bump ranges for all pep621 dependencies",
       "matchManagers": ["pep621"],

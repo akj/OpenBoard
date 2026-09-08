@@ -1,43 +1,232 @@
-name: CI Pipeline
+name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - build
   pull_request:
-    branches:
-      - main
-      - build
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build-installers:
+        description: Build installers as well as portable archives
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      build-installers:
+        description: Build installers as well as portable archives
+        type: boolean
+        default: false
 
-# Cancel in-progress runs for the same PR/branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# Minimal permissions - read only
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: '3.12'
+
 jobs:
   lint:
-    name: Lint and Format Check
-    uses: ./.github/workflows/setup-lint.yml
-    permissions:
-      contents: read
-      actions: read
+    name: Lint and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version-file: pyproject.toml
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Lint
+        run: uv run --no-sync ruff check . .build
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check . .build
+      - name: Check types
+        run: uv run --no-sync ty check
 
   test:
-    name: Test Suite
-    uses: ./.github/workflows/setup-test.yml
-    permissions:
-      contents: read
-      actions: read
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version-file: pyproject.toml
+          enable-cache: true
+      - name: Install GUI libraries and Stockfish on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 libnotify4 libsdl2-2.0-0 python3-speechd xvfb xauth stockfish
+          echo /usr/games >> "$GITHUB_PATH"
+          echo PYTHONPATH=/usr/lib/python3/dist-packages >> "$GITHUB_ENV"
+      - name: Install Stockfish on macOS
+        if: runner.os == 'macOS'
+        run: brew install stockfish
+      - name: Install Stockfish on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-windows-x86-64-universal.zip'
+          $archive = Join-Path $env:RUNNER_TEMP 'stockfish.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'stockfish'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $expectedHash = '3c8bf1f9ea66a09350a40df4f632288285ac206d99f33ab5842c408fc30b48a7'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) {
+            throw 'Stockfish archive checksum mismatch'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $engine = Get-ChildItem -LiteralPath $destination -Filter 'stockfish*.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $engine) { throw 'Stockfish executable not found in archive' }
+          Rename-Item -LiteralPath $engine.FullName -NewName stockfish.exe
+          $engine.Directory.FullName | Out-File -LiteralPath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Run tests on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a uv run --no-sync pytest --tb=short
+      - name: Run tests on Windows and macOS
+        if: runner.os != 'Linux'
+        run: uv run --no-sync pytest --tb=short
 
-  validate:
-    name: Build Validation
+  package:
+    name: Package ${{ matrix.platform }}
     needs: [lint, test]
-    uses: ./.github/workflows/setup-validate.yml
-    permissions:
-      contents: read
-      actions: read
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    env:
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version-file: pyproject.toml
+          enable-cache: true
+      - name: Install GUI libraries on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 libnotify4 libsdl2-2.0-0 python3-speechd
+          echo PYTHONPATH=/usr/lib/python3/dist-packages >> "$GITHUB_ENV"
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Build executable and check startup
+        run: uv run --no-sync python .build/scripts/build.py --verbose
+      - name: Create portable archive
+        shell: bash
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          platform = os.environ['PLATFORM']
+          architecture = os.environ['RUNNER_ARCH'].lower()
+          Path('artifacts').mkdir()
+          root = 'OpenBoard.app' if platform == 'macos' else 'OpenBoard'
+          archive_format = 'zip' if platform == 'windows' else 'gztar'
+          archive = shutil.make_archive(
+              f'artifacts/OpenBoard-{platform}-{architecture}',
+              archive_format, root_dir='dist', base_dir=root,
+          )
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as environment:
+              environment.write(f'PORTABLE_ARCHIVE={Path(archive).resolve().as_posix()}\n')
+          PY
+      - name: Check startup from the extracted archive
+        shell: bash
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          project = Path.cwd()
+          with tempfile.TemporaryDirectory(prefix='openboard-archive-') as temporary_dir:
+              shutil.unpack_archive(os.environ['PORTABLE_ARCHIVE'], temporary_dir)
+              root = Path(temporary_dir)
+              platform = os.environ['PLATFORM']
+              if platform == 'macos':
+                  executable = root / 'OpenBoard.app/Contents/MacOS/OpenBoard'
+              elif platform == 'windows':
+                  executable = root / 'OpenBoard/OpenBoard.exe'
+              else:
+                  executable = root / 'OpenBoard/OpenBoard'
+              subprocess.run([
+                  sys.executable, str(project / '.build/validation/verify_build.py'),
+                  '--executable', str(executable), '--verbose',
+              ], check=True)
+          PY
+      - name: Install Windows installer tools
+        if: inputs.build-installers && runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
+      - name: Install Linux installer tools
+        if: inputs.build-installers && runner.os == 'Linux'
+        run: sudo apt-get install -y rpm
+      - name: Build installers
+        if: inputs.build-installers
+        run: uv run --no-sync python .build/installers/scripts/build_installer.py --verbose
+      - name: Collect every requested installer
+        if: inputs.build-installers
+        shell: bash
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          patterns = {'windows': ['*.exe'], 'macos': ['*.dmg'], 'linux': ['*.deb', '*.rpm']}
+          for pattern in patterns[os.environ['PLATFORM']]:
+              installers = list(Path('dist/installers').glob(pattern))
+              if len(installers) != 1 or installers[0].stat().st_size == 0:
+                  raise SystemExit(f'Expected one nonempty installer matching {pattern}: {installers}')
+              shutil.copy2(installers[0], 'artifacts')
+          PY
+      - name: Build and install Python wheel
+        if: runner.os == 'Linux'
+        run: |
+          uv build --wheel --no-build-isolation --out-dir "$RUNNER_TEMP/wheel"
+          uv pip install --python .venv/bin/python --no-deps --reinstall "$RUNNER_TEMP"/wheel/*.whl
+      - name: Check installed wheel outside the checkout
+        if: runner.os == 'Linux'
+        run: |
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/.venv/bin/python" -m openboard --self-test
+      - name: Upload verified packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: openboard-${{ matrix.platform }}
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: ${{ inputs.build-installers && 90 || 7 }}

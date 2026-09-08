@@ -5,11 +5,11 @@ import platform
 from pathlib import Path
 from typing import Any
 
-from blinker import signal
+from blinker import Signal
 
+from ..exceptions import NetworkError
 from .downloader import StockfishDownloader
 from .engine_detection import EngineDetector
-from ..exceptions import NetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -25,35 +25,24 @@ class StockfishManager:
     - update_available(sender, current_version, latest_version)
     """
 
-    # Signals for UI communication
-    installation_started = signal("installation_started")
-    installation_progress = signal("installation_progress")
-    installation_completed = signal("installation_completed")
-    update_available = signal("update_available")
-
     def __init__(self, install_dir: Path | None = None):
         """
         Initialize the manager.
 
         Args:
-            install_dir: Directory for engine installations. Defaults to <cwd>/engines
+            install_dir: Directory for engine installations. Defaults to the user data directory.
         """
         self.downloader = StockfishDownloader(install_dir)
         self.detector = EngineDetector()
         self._logger = logging.getLogger(__name__)
-
-        # Codex MEDIUM: single startup INFO since downloads use HTTPS-only verification.
-        # Per-download integrity gap is DEBUG in download_file; this is the operator-visible
-        # announcement. Stockfish releases publish no per-asset checksums (RESEARCH.md Pitfall 5).
-        self._logger.info(
-            "Stockfish manager initialized: no upstream checksum source configured; "
-            "downloads will use HTTPS-only verification "
-            "(Stockfish releases publish no per-asset checksums)."
-        )
+        self.installation_started = Signal()
+        self.installation_progress = Signal()
+        self.installation_completed = Signal()
+        self.update_available = Signal()
 
     def get_status(self) -> dict[str, Any]:
         """
-        Get comprehensive Stockfish status information.
+        Get local Stockfish status without network access.
 
         Returns:
             Dictionary with status details
@@ -64,8 +53,6 @@ class StockfishManager:
             "local_installed": False,
             "local_path": None,
             "local_version": None,
-            "latest_version": None,
-            "update_available": False,
             "platform_supported": platform.system().lower() == "windows",
         }
 
@@ -81,14 +68,6 @@ class StockfishManager:
             status["local_installed"] = True
             status["local_path"] = str(local_path)
             status["local_version"] = self.downloader.get_installed_version()
-
-        # Check for updates (if locally installed)
-        if status["local_installed"]:
-            latest_version = self.downloader.get_latest_version()
-            status["latest_version"] = latest_version
-
-            if latest_version and status["local_version"]:
-                status["update_available"] = latest_version != status["local_version"]
 
         return status
 
@@ -193,14 +172,21 @@ class StockfishManager:
             self._logger.info("No local installation found, performing fresh install")
             return self.install_stockfish()
 
-        if not status["update_available"]:
+        latest_version = self.downloader.get_latest_version()
+        if latest_version is None:
+            self.installation_completed.send(
+                self, success=False, message="Could not check for Stockfish updates"
+            )
+            return False
+
+        if latest_version == status["local_version"]:
             self.installation_completed.send(
                 self, success=True, message="Stockfish is already up to date"
             )
             return True
 
         self._logger.info(
-            f"Updating from {status['local_version']} to {status['latest_version']}"
+            f"Updating from {status['local_version']} to {latest_version}"
         )
         return self.install_stockfish()  # Same process as installation
 
@@ -212,15 +198,15 @@ class StockfishManager:
         Returns:
             Latest version if update available, None otherwise
         """
-        status = self.get_status()
-
-        if status["update_available"]:
+        current_version = self.downloader.get_installed_version()
+        latest_version = self.downloader.get_latest_version()
+        if current_version and latest_version and current_version != latest_version:
             self.update_available.send(
                 self,
-                current_version=status["local_version"],
-                latest_version=status["latest_version"],
+                current_version=current_version,
+                latest_version=latest_version,
             )
-            return status["latest_version"]
+            return latest_version
 
         return None
 

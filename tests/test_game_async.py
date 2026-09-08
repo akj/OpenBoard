@@ -46,13 +46,13 @@ class TestGameRequestHintAsync:
         # Hint tests use starting position (white to move), so e2e4 is valid
         self.mock_engine = _make_mock_engine(move_uci="e2e4")
 
-    def test_request_hint_async_calls_engine_with_fen_and_time_ms(self):
+    def test_request_hint_async_calls_engine_with_board_and_time_ms(self):
         game = Game(engine_adapter=self.mock_engine)
         game.request_hint_async(time_ms=500)
         call_args = self.mock_engine.get_best_move_async.call_args
         assert call_args is not None
-        # FEN is first positional arg
-        assert isinstance(call_args[0][0], str)
+        assert isinstance(call_args[0][0], chess.Board)
+        assert call_args[0][1] == 500
         assert call_args[1].get("callback") is not None
 
     def test_request_hint_async_callback_emits_hint_ready_on_success(self):
@@ -197,7 +197,7 @@ class TestGameRequestComputerMoveAsync:
             difficulty=DifficultyLevel.BEGINNER,
         )
         game = Game(engine_adapter=None, config=config)
-        game.board_state._board.push(chess.Move.from_uci("e2e4"))
+        game.make_move(chess.Move.from_uci("e2e4"))
         with pytest.raises(EngineError):
             game.request_computer_move_async()
 
@@ -242,77 +242,6 @@ class TestGameRequestComputerMoveAsync:
         assert isinstance(old_board_events[0], chess.Board)
 
 
-import inspect
-from typing import NamedTuple
-
-
-class TestResolveMoveContextExtracted:
-    """Verifies TD-07 / CONCERNS.md "Duplicate difficulty-resolution logic": helper exists with NamedTuple shape."""
-
-    def _make_hvc_game(self, difficulty=DifficultyLevel.BEGINNER):
-        engine = _make_mock_engine(move_uci="e7e5")
-        config = GameConfig(
-            mode=GameMode.HUMAN_VS_COMPUTER,
-            human_color=chess.WHITE,
-            difficulty=difficulty,
-        )
-        return Game(engine_adapter=engine, config=config)
-
-    def test_resolve_move_context_extracted(self):
-        """Verifies TD-07 / D-14: Game._resolve_move_context() exists and returns a NamedTuple.
-
-        Per Codex MEDIUM: the helper returns typing.NamedTuple, NOT a @dataclass.
-        Three named fields: difficulty_config, fen_before, book_move.
-        """
-        assert hasattr(Game, "_resolve_move_context"), (
-            "TD-07: Game._resolve_move_context() helper must be extracted from the duplicate preambles"
-        )
-        game = self._make_hvc_game()
-        context = game._resolve_move_context()
-
-        # Codex MEDIUM: NamedTuple, not dataclass.
-        assert isinstance(context, tuple), (
-            "TD-07 / Codex MEDIUM: _resolve_move_context must return a NamedTuple (subclass of tuple)"
-        )
-        assert hasattr(type(context), "_fields"), (
-            "TD-07 / Codex MEDIUM: return type must be a typing.NamedTuple (has _fields)"
-        )
-        assert set(type(context)._fields) == {"difficulty_config", "fen_before", "book_move"}, (
-            f"TD-07: NamedTuple fields must be exactly (difficulty_config, fen_before, book_move); "
-            f"got {type(context)._fields}"
-        )
-
-        # Tuple-unpacking should also work
-        difficulty_config, fen_before, book_move = context
-        assert difficulty_config is not None
-        assert isinstance(fen_before, str)
-        assert len(fen_before.split(" ")) >= 4   # FEN sanity
-
-    def test_resolve_move_context_is_pure(self):
-        """Verifies TD-07 / Codex MEDIUM: _resolve_move_context has NO side effects.
-
-        Source-introspection guardrail. The helper must not call .send() on signals,
-        must not marshal to wx thread, must not push moves, must not invoke engine
-        callbacks. Validation + lookup + FEN snapshot + optional book lookup ONLY.
-        """
-        source = inspect.getsource(Game._resolve_move_context)
-
-        # Forbidden patterns — each represents a side-effect category
-        forbidden_patterns = [
-            (".send(", "must not emit blinker signals"),
-            ("wx.CallAfter", "must not marshal to wx main thread"),
-            ("make_move(", "must not push moves through BoardState"),
-            ("get_best_move_async", "must not invoke engine async path"),
-            ("get_best_move(", "must not invoke engine sync path"),
-            ("board_state._board.push", "must not push directly to underlying board"),
-        ]
-        for pattern, why in forbidden_patterns:
-            assert pattern not in source, (
-                f"TD-07 / Codex MEDIUM: _resolve_move_context {why}; "
-                f"found `{pattern}` in source"
-            )
-
-
 class TestRequestComputerMoveEngineOptional:
     """Verifies engine-optional behavior (Codex MEDIUM): no engine + no book → typed engine error."""
 
@@ -343,5 +272,121 @@ class TestRequestComputerMoveEngineOptional:
         # Ensure no opening book is configured.
         game.opening_book = None
 
+        game.make_move(chess.Move.from_uci("e2e4"))
         with pytest.raises(EngineError):
             game.request_computer_move_async()
+
+
+class DeferredEngine:
+    """Keep callbacks pending, including results already queued for GUI delivery."""
+
+    def __init__(self):
+        self.requests = []
+
+    def get_best_move_async(self, board, time_ms=1000, depth=None, callback=None):
+        from concurrent.futures import Future
+
+        future = Future()
+        self.requests.append((board, callback, future))
+        return future
+
+
+def make_deferred_game():
+    engine = DeferredEngine()
+    game = Game(
+        engine_adapter=Mock(spec=EngineAdapter, wraps=engine),
+        config=GameConfig(
+            mode=GameMode.HUMAN_VS_COMPUTER,
+            human_color=chess.BLACK,
+            difficulty=DifficultyLevel.BEGINNER,
+        ),
+    )
+    return game, engine
+
+
+@pytest.mark.parametrize(
+    "reset",
+    [
+        lambda game: game.new_game(),
+        lambda game: game.load_fen(chess.STARTING_FEN),
+        lambda game: game.board_state.load_pgn('[Event "Empty"]\n\n*'),
+        lambda game: game.close(),
+    ],
+)
+def test_late_computer_move_is_discarded_even_when_still_legal(reset):
+    game, engine = make_deferred_game()
+    events = []
+    game.computer_move_ready.connect(lambda sender, **kw: events.append(kw), weak=False)
+    game.request_computer_move_async()
+    reset(game)
+    _, callback, future = engine.requests[0]
+    assert future.cancelled()
+    callback(chess.Move.from_uci("e2e4"))
+    assert game.board_state.board.fen() == chess.STARTING_FEN
+    assert events == []
+
+
+def test_undo_and_redo_do_not_revive_old_computer_result():
+    game, engine = make_deferred_game()
+    game.request_computer_move_async()
+    game.make_move(chess.Move.from_uci("e2e4"))
+    game.undo_move()
+    engine.requests[0][1](chess.Move.from_uci("e2e4"))
+    assert game.board_state.board.fen() == chess.STARTING_FEN
+
+
+def test_new_hint_supersedes_previous_hint_and_position_change_cancels_it():
+    game, engine = make_deferred_game()
+    hints = []
+    game.hint_ready.connect(lambda sender, **kw: hints.append(kw), weak=False)
+    game.request_hint_async()
+    game.request_hint_async()
+    assert engine.requests[0][2].cancelled()
+    engine.requests[0][1](chess.Move.from_uci("e2e4"))
+    assert hints == []
+    engine.requests[1][1](chess.Move.from_uci("d2d4"))
+    assert hints == [{"move": chess.Move.from_uci("d2d4")}]
+    game.request_hint_async()
+    game.new_game()
+    engine.requests[2][1](RuntimeError("stale error"))
+    assert len(hints) == 1
+
+
+def test_duplicate_computer_request_does_not_start_another_search():
+    game, engine = make_deferred_game()
+    game.request_computer_move_async()
+    game.request_computer_move_async()
+    assert len(engine.requests) == 1
+    engine.requests[0][1](chess.Move.from_uci("e2e4"))
+    engine.requests[0][1](chess.Move.from_uci("e2e4"))
+    assert game.board_state.board.move_stack == [chess.Move.from_uci("e2e4")]
+
+
+def test_hint_snapshot_retains_repetition_history():
+    game, engine = make_deferred_game()
+    for move in ["g1f3", "g8f6", "f3g1", "f6g8"] * 2:
+        game.make_move(chess.Move.from_uci(move))
+    game.request_hint_async()
+    snapshot = engine.requests[0][0]
+    game.make_move(chess.Move.from_uci("e2e4"))
+    assert snapshot.is_repetition(3)
+    assert len(snapshot.move_stack) == 8
+
+
+def test_computer_search_rejects_human_turn():
+    game, engine = make_deferred_game()
+    game.make_move(chess.Move.from_uci("e2e4"))
+    with pytest.raises(GameModeError, match="computer's turn"):
+        game.request_computer_move_async()
+    assert engine.requests == []
+
+
+def test_illegal_engine_move_announces_error_without_changing_position():
+    game, engine = make_deferred_game()
+    events = []
+    game.computer_move_ready.connect(lambda sender, **kw: events.append(kw), weak=False)
+    game.request_computer_move_async()
+    engine.requests[0][1](chess.Move.from_uci("e2e5"))
+    assert game.board_state.board.fen() == chess.STARTING_FEN
+    assert events[0]["move"] is None
+    assert "illegal move" in events[0]["error"]
