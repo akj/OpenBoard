@@ -195,8 +195,9 @@ def test_native_focus_and_selection_events_follow_controller(frame, monkeypatch)
     assert any(event[0] == wx.ACC_EVENT_OBJECT_NAMECHANGE for event in events)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows MSAA interface")
 def test_windows_accessibility_exposes_live_squares_and_selection(frame, monkeypatch):
+    if sys.platform != "win32":
+        pytest.skip("Windows MSAA interface")
     pythoncom = pytest.importorskip("pythoncom")
     panel = frame.board_panel
     pointer = ctypes.c_void_p()

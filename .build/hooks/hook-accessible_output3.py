@@ -12,7 +12,7 @@ if sys.platform == "linux":
     if importlib.util.find_spec("speechd") is None:
         raise RuntimeError(
             "Linux builds require python3-speechd. Install the system package and "
-            "make /usr/lib/python3/dist-packages available on PYTHONPATH."
+            "use a virtual environment with system-site-packages enabled."
         )
     hiddenimports += collect_submodules("speechd")
 elif sys.platform == "darwin":

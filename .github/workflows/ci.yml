@@ -74,7 +74,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-0t64 libnotify4 libsdl2-2.0-0 python3-speechd xvfb xauth stockfish
           echo /usr/games >> "$GITHUB_PATH"
-          echo PYTHONPATH=/usr/lib/python3/dist-packages >> "$GITHUB_ENV"
       - name: Install Stockfish on macOS
         if: runner.os == 'macOS'
         run: brew install stockfish
@@ -97,6 +96,16 @@ jobs:
           $engine.Directory.FullName | Out-File -LiteralPath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install locked dependencies
         run: uv sync --locked
+      - name: Expose system speech bindings to the virtual environment
+        if: runner.os == 'Linux'
+        run: |
+          uv run --no-sync python - <<'PY'
+          import sysconfig
+          from pathlib import Path
+          Path(sysconfig.get_path('purelib'), 'system-speechd.pth').write_text(
+              '/usr/lib/python3/dist-packages\n', encoding='utf-8',
+          )
+          PY
       - name: Run tests on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a uv run --no-sync pytest --tb=short
@@ -135,9 +144,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-0t64 libnotify4 libsdl2-2.0-0 python3-speechd
-          echo PYTHONPATH=/usr/lib/python3/dist-packages >> "$GITHUB_ENV"
       - name: Install locked dependencies
         run: uv sync --locked
+      - name: Expose system speech bindings to the virtual environment
+        if: runner.os == 'Linux'
+        run: |
+          uv run --no-sync python - <<'PY'
+          import sysconfig
+          from pathlib import Path
+          Path(sysconfig.get_path('purelib'), 'system-speechd.pth').write_text(
+              '/usr/lib/python3/dist-packages\n', encoding='utf-8',
+          )
+          PY
       - name: Build executable and check startup
         run: uv run --no-sync python .build/scripts/build.py --verbose
       - name: Create portable archive
