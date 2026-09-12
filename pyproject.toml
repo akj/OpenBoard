@@ -20,7 +20,7 @@ openboard = "openboard.__main__:main"
 
 [dependency-groups]
 dev = [
-    "cairosvg>=2.9.0",
+    "cairosvg>=2.9.1",
     "pillow>=12.3.0",
     "pyinstaller>=6.22.2",
     "pytest>=9.1.1",
