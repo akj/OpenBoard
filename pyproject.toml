@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accessible-output3",
-    "appscript>=1.4.0; sys_platform == 'darwin'",
+    "appscript>=1.5.0; sys_platform == 'darwin'",
     "blinker>=1.9.0",
     "chess>=1.11.2",
     "platformdirs>=4.11.7",
